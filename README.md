@@ -1,64 +1,60 @@
-# lora-hiker-geofence-dashboard
+# LoRa Hiker Geofence Dashboard
 
-Ranger dashboard for a **two-way LoRa GPS tracking and active geofencing warning system for eco-trail hiker safety** (Polytechnic University of the Philippines, Institute of Technology thesis project).
-
-> **Status: work in progress.** The hardware (ESP32 + SX1276 LoRa boards) has not been bought yet. The dashboard is being built and tested with mock data. Nothing here has been tested on a real trail.
-
-## What it does
-
-- Takes position reports (hiker ID, latitude, longitude, which node heard it).
-- Checks each position against a stored safe-zone polygon using a Point-in-Polygon (ray-casting) test.
-- Shows each hiker's status, which node last heard them, a position plot, and an alert log.
-- Raises one alert each time a hiker goes from inside to outside the safe zone.
-
-## Status
-
-| Part | State |
-|---|---|
-| Safe-zone polygon storage | Working (sample polygon only) |
-| Point-in-Polygon check | Working |
-| Dashboard (status, plot, alerts) | Working with mock data |
-| Mock hike generator | Working |
-| Serial bridge (Base Camp Node USB to `ingest.php`) | Not started, needs hardware |
-| LoRa downlink command to hiker phone | Not started, needs hardware |
-| Real trail polygon | Not set |
+Local PHP/MariaDB dashboard foundation. The current live overview is a static **Demo / Simulation Mode** shell. The Milestone 2 API stores records marked `test_mode`; it does not implement radio transport or parse serial frames.
 
 ## Setup
 
-Requires PHP 8+ and MySQL/MariaDB (XAMPP works).
+Requires PHP 8.0+ (PHP 8.2 is the proposal target) and MariaDB 10.4+.
+
+1. Create the local database and tables, including clearly marked synthetic safe-zone sample data:
+
+   ```bash
+   mysql -u root < sql/schema.sql
+   ```
+
+2. Copy `config.example.php` to `config.php`, set the MariaDB credentials, and set a private `bridge_token` for local bridge endpoints. `config.php` is git-ignored.
+
+3. Start the local server (router enables `/api/...` paths):
+
+   ```bash
+   php -S 127.0.0.1:8000 -t public public/router.php
+   ```
+
+4. Open http://127.0.0.1:8000. The dashboard remains the Milestone 1 illustrative shell; the API is separate and does not feed it yet.
+
+## API endpoints
+
+All responses are JSON. Bridge endpoints require `X-Bridge-Token` matching `bridge_token` in local config. The bridge submits the agreed logical JSON object only; actual USB serial framing and LoRa binary encoding remain unspecified.
+
+- `GET /api/status`
+- `GET /api/hikers`, `GET /api/hikers/{node_id}/latest`, `GET /api/positions/latest`
+- `GET /api/events`, `GET /api/logs/packets` (support `limit`, `offset`, and basic filters)
+- `GET /api/safe-zone`, `PUT /api/safe-zone` with `{ "name": "...", "vertices": [{"latitude": 14.8, "longitude": 121.0}] }`
+- `POST /api/commands/storm-turn-back` with `{ "node_id": "H1", "test_mode": true }` or `{ "all": true, "test_mode": true }`
+- `POST /api/bridge/ingest`, `POST /api/bridge/status`
+- `GET /api/commands/pending`, `POST /api/commands/{id}/status`
+- `GET /api/research/summary` (descriptive counts only)
+
+Ingest JSON follows the spec's logical packet fields (`node_id`, `sequence_number`, coordinates and optional GPS/battery/flags/reception metadata). It is not a wire protocol. Receptions are stored separately so direct and relay copies can be attached to one logical packet. Duplicate `(node_id, sequence_number)` packets are marked and their reception records retained. Valid classified positions queue a targeted ACK or off-trail alert record; nothing transmits it.
+
+Safe-zone edge behavior is explicitly defined: points on an edge count as inside. Updating a zone creates a new version and deactivates the prior version. Authentication for operator-facing actions is not included in this local prototype; bridge routes use the configured shared token.
+
+## Validation
+
+Run the independent ray-casting checks:
 
 ```bash
-# 1. Create the database
-mysql -u root < sql/schema.sql
-
-# 2. Configure
-cp config.example.php config.php   # then edit credentials
-
-# 3. Run the dashboard
-php -S localhost:8000 -t public
-
-# 4. In another terminal, generate fake hiker data
-php tools/mock_hike.php 1
+php tests/geofence_test.php
 ```
 
-Open http://localhost:8000. H1 walks the sample corridor and then goes off it, which triggers an alert. H2 stays inside.
+For endpoint smoke checks, use a disposable MariaDB database with the server running:
 
-## Layout
-
-```
-public/index.php     dashboard
-public/ingest.php    endpoint the serial bridge will POST to (token protected)
-src/geofence.php     point_in_polygon()
-src/report.php       store a report, run the check, raise alerts
-sql/schema.sql       tables + sample safe zone
-tools/mock_hike.php  fake data for testing
+```bash
+php tests/api_smoke.php http://127.0.0.1:8000 YOUR_BRIDGE_TOKEN
 ```
 
-## Notes
+The endpoint smoke test changes the active safe zone and writes demo-marked records. Do not run it against research data.
 
-- The sample polygon in `sql/schema.sql` is made up. Replace it with the real safe zone once the trail is decided.
-- Change `ingest_token` in `config.php` before exposing `ingest.php` to anything other than localhost.
+## Existing backend
 
-## Authors
-
-Hilario, Aydalla, Filio, Ferrer, Quibal (PUP Institute of Technology, 2026).
+`public/ingest.php`, `src/report.php`, and `tools/mock_hike.php` are retained for the previous prototype workflow. They use the legacy `positions`/`alerts` tables from the earlier schema and are separate from the new API schema. Hardware integration remains out of scope until the firmware team supplies serial and packet formats.
