@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS safe_zones (
   name VARCHAR(100) NOT NULL,
   version INT UNSIGNED NOT NULL,
   site_id VARCHAR(32) NOT NULL DEFAULT 'pup',
+  is_demo TINYINT(1) NOT NULL DEFAULT 0,
+  is_rehearsal TINYINT(1) NOT NULL DEFAULT 0,
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   created_by VARCHAR(100) NULL,
@@ -53,7 +55,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
   setting_value VARCHAR(255) NOT NULL,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
-INSERT IGNORE INTO app_settings(setting_key,setting_value) VALUES('selected_site','pup');
+INSERT IGNORE INTO app_settings(setting_key,setting_value) VALUES('selected_site','pup'),('phase_mode','PHASE1');
 CREATE TABLE IF NOT EXISTS safe_zone_vertices (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   safe_zone_id INT UNSIGNED NOT NULL,
@@ -66,6 +68,7 @@ CREATE TABLE IF NOT EXISTS safe_zone_vertices (
 CREATE TABLE IF NOT EXISTS uplink_packets (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   hiker_node_id INT UNSIGNED NOT NULL,
+  site_id VARCHAR(32) NOT NULL DEFAULT 'pup',
   sequence_number INT UNSIGNED NOT NULL,
   latitude DECIMAL(10,7) NOT NULL,
   longitude DECIMAL(10,7) NOT NULL,
@@ -80,8 +83,11 @@ CREATE TABLE IF NOT EXISTS uplink_packets (
   validation_status ENUM('VALID','INVALID','LATE','DUPLICATE') NOT NULL DEFAULT 'VALID',
   raw_payload TEXT NULL,
   test_mode TINYINT(1) NOT NULL DEFAULT 0,
+  is_demo TINYINT(1) NOT NULL DEFAULT 0,
+  is_rehearsal TINYINT(1) NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE KEY uq_hiker_sequence(hiker_node_id, sequence_number),
+  KEY ix_uplink_hiker(hiker_node_id),
+  UNIQUE KEY uq_hiker_site_sequence(site_id,hiker_node_id,sequence_number),
   KEY ix_uplink_received(received_at), KEY ix_uplink_class(classification),
   CONSTRAINT fk_uplink_hiker FOREIGN KEY(hiker_node_id) REFERENCES hiker_nodes(id),
   CONSTRAINT fk_uplink_zone FOREIGN KEY(safe_zone_id) REFERENCES safe_zones(id) ON DELETE SET NULL
@@ -90,6 +96,13 @@ CREATE TABLE IF NOT EXISTS packet_receptions (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   uplink_packet_id BIGINT UNSIGNED NOT NULL,
   received_by_node VARCHAR(16) NOT NULL,
+  base_id VARCHAR(16) NOT NULL DEFAULT 'BASE',
+  checkpoint_id VARCHAR(16) NULL,
+  checkpoint_rssi_dbm SMALLINT NULL,
+  is_duplicate TINYINT(1) NOT NULL DEFAULT 0,
+  site_id VARCHAR(32) NOT NULL DEFAULT 'pup',
+  is_demo TINYINT(1) NOT NULL DEFAULT 0,
+  is_rehearsal TINYINT(1) NOT NULL DEFAULT 0,
   path_type ENUM('DIRECT','CHECKPOINT_RELAY','UNKNOWN') NOT NULL DEFAULT 'UNKNOWN',
   relay_rssi_dbm SMALLINT NULL,
   rssi_dbm SMALLINT NULL,
@@ -104,18 +117,43 @@ CREATE TABLE IF NOT EXISTS packet_receptions (
 CREATE TABLE IF NOT EXISTS downlink_commands (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   hiker_node_id INT UNSIGNED NOT NULL,
+  site_id VARCHAR(32) NOT NULL DEFAULT 'pup',
+  base_id VARCHAR(16) NOT NULL DEFAULT 'BASE',
   sequence_number INT UNSIGNED NULL,
+  storm_campaign_id BIGINT UNSIGNED NULL,
+  route_type ENUM('DIRECT','CHECKPOINT_RELAY') NOT NULL DEFAULT 'DIRECT',
+  route_via_node_id VARCHAR(16) NULL,
   command_type ENUM('ACK','OFF_TRAIL_ALERT','STORM_TURN_BACK','SOS_ACK') NOT NULL,
   payload_json JSON NULL,
-  status ENUM('QUEUED','SENT_TO_BASE','DELIVERED','RECEIVED','FAILED','TIMED_OUT') NOT NULL DEFAULT 'QUEUED',
+  status ENUM('QUEUED','SENT_TO_BASE','DELIVERED','RECEIVED','FAILED','TIMED_OUT','CANCELLED') NOT NULL DEFAULT 'QUEUED',
   test_mode TINYINT(1) NOT NULL DEFAULT 0,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  sent_at DATETIME NULL,
-  delivered_at DATETIME NULL,
-  received_at DATETIME NULL,
+  is_demo TINYINT(1) NOT NULL DEFAULT 0,
+  is_rehearsal TINYINT(1) NOT NULL DEFAULT 0,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  fetched_at DATETIME(3) NULL,
+  sent_at DATETIME(3) NULL,
+  delivered_at DATETIME(3) NULL,
+  received_at DATETIME(3) NULL,
   failure_reason VARCHAR(500) NULL,
-  KEY ix_command_status(status,created_at), KEY ix_command_hiker(hiker_node_id,created_at),
+  KEY ix_command_status(status,created_at), KEY ix_command_hiker(hiker_node_id,created_at), KEY ix_command_storm(storm_campaign_id),
   CONSTRAINT fk_command_hiker FOREIGN KEY(hiker_node_id) REFERENCES hiker_nodes(id)
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS storm_turnback_campaigns (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  hiker_node_id INT UNSIGNED NOT NULL,
+  site_id VARCHAR(32) NOT NULL DEFAULT 'pup',
+  base_id VARCHAR(16) NOT NULL DEFAULT 'BASE',
+  status ENUM('ACTIVE','RECEIVED','CANCELLED','DISABLED') NOT NULL DEFAULT 'ACTIVE',
+  test_mode TINYINT(1) NOT NULL DEFAULT 0,
+  is_demo TINYINT(1) NOT NULL DEFAULT 0,
+  is_rehearsal TINYINT(1) NOT NULL DEFAULT 0,
+  created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  last_queued_at DATETIME(3) NULL,
+  received_at DATETIME(3) NULL,
+  cancelled_at DATETIME(3) NULL,
+  disabled_at DATETIME(3) NULL,
+  KEY ix_storm_active(site_id,hiker_node_id,status,created_at),
+  CONSTRAINT fk_storm_hiker FOREIGN KEY(hiker_node_id) REFERENCES hiker_nodes(id)
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS system_events (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -125,6 +163,9 @@ CREATE TABLE IF NOT EXISTS system_events (
   message VARCHAR(500) NOT NULL,
   metadata_json JSON NULL,
   test_mode TINYINT(1) NOT NULL DEFAULT 0,
+  is_demo TINYINT(1) NOT NULL DEFAULT 0,
+  is_rehearsal TINYINT(1) NOT NULL DEFAULT 0,
+  site_id VARCHAR(32) NOT NULL DEFAULT 'pup',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   resolved_at DATETIME NULL,
   resolved_by VARCHAR(100) NULL,
@@ -138,6 +179,9 @@ CREATE TABLE IF NOT EXISTS operator_actions (
   details_json JSON NULL,
   operator_id VARCHAR(100) NULL,
   test_mode TINYINT(1) NOT NULL DEFAULT 0,
+  is_demo TINYINT(1) NOT NULL DEFAULT 0,
+  is_rehearsal TINYINT(1) NOT NULL DEFAULT 0,
+  site_id VARCHAR(32) NOT NULL DEFAULT 'pup',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY ix_action_time(created_at),
   CONSTRAINT fk_action_hiker FOREIGN KEY(target_node_id) REFERENCES hiker_nodes(id) ON DELETE SET NULL
@@ -157,8 +201,8 @@ INSERT IGNORE INTO network_nodes(node_code,node_type,display_name) VALUES
  ('BASE','BASE_CAMP','Base Camp Node'),('CHK','CHECKPOINT','Checkpoint Node');
 INSERT IGNORE INTO system_status(component,state) VALUES ('BASE_CAMP','UNKNOWN'),('SERIAL_BRIDGE','UNKNOWN'),('DATABASE','ONLINE');
 -- Explicitly synthetic coordinates for development only; replace with surveyed trail data.
-INSERT INTO safe_zones(name,version,site_id,is_active,created_by)
- SELECT 'DEMO ONLY - Sample corridor',1,'pup',1,'demo-seed' WHERE NOT EXISTS(SELECT 1 FROM safe_zones WHERE site_id='pup');
+INSERT INTO safe_zones(name,version,site_id,is_demo,is_rehearsal,is_active,created_by)
+ SELECT 'DEMO ONLY - Sample corridor',1,'pup',1,0,1,'demo-seed' WHERE NOT EXISTS(SELECT 1 FROM safe_zones WHERE site_id='pup');
 INSERT INTO safe_zone_vertices(safe_zone_id,vertex_order,latitude,longitude)
  SELECT z.id,v.ord,v.lat,v.lng FROM safe_zones z
  JOIN (SELECT 1 ord,14.8000 lat,121.0000 lng UNION ALL SELECT 2,14.8000,121.0006 UNION ALL SELECT 3,14.8060,121.0006 UNION ALL SELECT 4,14.8060,121.0000) v

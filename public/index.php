@@ -18,8 +18,8 @@ function e(string $value): string { return htmlspecialchars($value, ENT_QUOTES, 
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101918">
   <title>Trailwatch · Live operations</title>
-  <link rel="stylesheet" href="assets/css/dashboard.css?v=20261103-7">
-  <script src="assets/js/dashboard.js?v=20261103-7" defer></script>
+  <link rel="stylesheet" href="assets/css/dashboard.css?v=20261103-8">
+  <script src="assets/js/dashboard.js?v=20261103-10" defer></script>
 </head>
 <body>
 <div class="app-shell">
@@ -40,7 +40,7 @@ function e(string $value): string { return htmlspecialchars($value, ENT_QUOTES, 
     <header class="topbar"><div class="crumb">Operations <span>/</span> Live dashboard</div><div class="top-meta"><div class="clock"><span class="live-dot"></span> LOCAL API <span class="divider">·</span> <span id="data-age">Connecting…</span></div><button class="icon-button" aria-label="Help" title="Help">?</button><div class="top-avatar">BC</div></div></header>
     <div class="demo-banner" id="demo-banner"><span class="demo-icon">i</span><div><strong>DEMO / SIMULATION MODE</strong><span>API-backed records are shown with their demo marker. No radio delivery is implied.</span></div><span class="demo-tag" id="data-mode-tag">DEMO FALLBACK</span></div>
 
-    <section class="page-heading"><div><div class="eyebrow">TEST SITE</div><h1>Live overview</h1><p>Monitor hiker locations, safety status, and system connections.</p><label class="site-picker">Test site <select id="site-select" aria-label="Test site"></select></label></div><button class="button button-quiet" id="refresh-demo"><span>↻</span> Refresh view</button></section>
+    <section class="page-heading"><div><div class="eyebrow">TEST SITE</div><h1>Live overview</h1><p>Monitor hiker locations, safety status, and system connections.</p><label class="site-picker">Test site <select id="site-select" aria-label="Test site"></select></label><span class="phase-indicator" id="dashboard-phase-mode" role="status">Phase —</span></div><button class="button button-quiet" id="refresh-demo"><span>↻</span> Refresh view</button></section>
 
     <section class="connection-strip" aria-label="System connections">
       <div class="connection"><span class="connection-symbol connected">⌂</span><div><small>BASE CAMP NODE</small><strong><i class="status-dot green"></i> Unknown <em>· API</em></strong></div></div>
@@ -68,13 +68,14 @@ function e(string $value): string { return htmlspecialchars($value, ENT_QUOTES, 
         <a class="panel-footer" href="#logs">View event log <span>→</span></a>
       </section>
 
-      <section class="panel hikers-panel" id="hikers" aria-labelledby="hikers-title"><div class="panel-heading"><div><div class="section-kicker">FIELD TEAM</div><h2 id="hikers-title">Hiker nodes <span class="heading-count">02</span></h2></div><button class="button button-storm" id="storm-button"><span>⚠</span> STORM · TURN BACK</button></div>
+      <section class="panel hikers-panel" id="hikers" aria-labelledby="hikers-title"><div class="panel-heading"><div><div class="section-kicker">FIELD TEAM</div><h2 id="hikers-title">Hiker nodes <span class="heading-count">02</span></h2></div><div class="editor-buttons"><button class="button button-storm" id="storm-button"><span>⚠</span> ARM STORM · TURN BACK</button><button class="button button-quiet" id="cancel-storm-button">Cancel active</button></div></div>
         <div class="hiker-grid" id="hiker-cards"><?php foreach ($hikers as $hiker): $isDanger = $hiker['state'] === 'OFF TRAIL'; ?><article class="hiker-card"><div class="hiker-card-top"><div class="person"><div class="person-avatar <?= $isDanger ? 'avatar-danger' : '' ?>"><?= e(substr($hiker['name'], 0, 1)) ?></div><div><strong><?= e($hiker['name']) ?></strong><small><?= e($hiker['id']) ?> <span>·</span> Hiker Node</small></div></div><span class="state-pill <?= $isDanger ? 'state-danger' : 'state-safe' ?>"><i></i><?= e($hiker['state']) ?></span></div>
           <div class="hiker-coord"><span>LAST KNOWN POSITION</span><strong><?= e($hiker['lat']) ?> <span>/</span> <?= e($hiker['lng']) ?></strong></div>
           <div class="hiker-stats"><div><small>BATTERY</small><strong class="battery <?= $hiker['battery'] < 20 ? 'battery-low' : '' ?>"><span class="battery-icon">▰</span> <?= e((string)$hiker['battery']) ?>%</strong></div><div><small>LAST REPORT</small><strong><?= e($hiker['age']) ?></strong></div><div><small>LAST HEARD BY</small><strong><?= e($hiker['heard']) ?></strong></div></div>
           <div class="hiker-foot"><span>GPS <?= e($hiker['accuracy']) ?> <b>·</b> <?= e($hiker['rssi']) ?></span><span class="demo-chip">DEMO</span></div>
         </article><?php endforeach; ?></div>
       </section>
+      <section class="panel packet-log-panel" id="logs" aria-labelledby="packet-log-title"><div class="panel-heading"><div><div class="section-kicker">RECEPTIONS</div><h2 id="packet-log-title">Packet log</h2></div><span class="offline-pill">LATEST 20</span></div><div class="packet-log-scroll"><table class="packet-log-table"><thead><tr><th>Time</th><th>Hiker / seq</th><th>Heard by</th><th>Relay hop</th><th>Route</th><th>Duplicate</th></tr></thead><tbody id="packet-log-rows"><tr><td colspan="6" class="empty">Loading packet receptions…</td></tr></tbody></table></div></section>
     </div>
     <footer class="page-footer"><span>TRAILWATCH <b>·</b> LOCAL BASE CAMP CONSOLE</span><span>Sample coordinates and events <b>·</b> Not for field-safety decisions</span></footer>
   </main>

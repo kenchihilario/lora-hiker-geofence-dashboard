@@ -10,8 +10,9 @@ return [
     'pup_mountain_prep' => [
         'id' => 'pup_mountain_prep', 'display_name' => 'PUP Mountain Prep (Demo)',
         'center' => null, 'zoom' => 16,
-        'center_status' => 'Mountain-prep test profile — PUP coordinates are not surveyed; configure a center or import a GPX track.',
+        'center_status' => 'UNSCORED REHEARSAL — PUP coordinates are not surveyed; configure a center or import a GPX track.',
         'terrain_profile' => 'mountain',
+        'is_demo' => true, 'is_rehearsal' => true,
         'reference_points' => [],
         'network_nodes' => ['BASE' => null, 'CHK' => null],
     ],
@@ -23,6 +24,13 @@ return [
             'code' => 'PEAK', 'label' => 'Peak · 770 m', 'point_type' => 'PEAK',
             'latitude' => 14.8243087, 'longitude' => 121.1804131,
         ]],
+        'network_nodes' => ['BASE' => null, 'CHK' => null],
+    ],
+    'mapalad_backup' => [
+        'id' => 'mapalad_backup', 'display_name' => 'Mt. Mapalad (backup)',
+        'center' => null, 'zoom' => 16,
+        'center_status' => 'BACKUP SITE — coordinates and route are not configured.',
+        'reference_points' => [],
         'network_nodes' => ['BASE' => null, 'CHK' => null],
     ],
 ];

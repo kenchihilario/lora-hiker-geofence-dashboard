@@ -29,6 +29,9 @@ try {
   $prep = Api 'safe-zone'
   if ($prep.selected_site -ne 'pup_mountain_prep' -or $prep.safe_zone -or $prep.site.center) { throw 'PUP Mountain Prep must start with an empty polygon and unset center.' }
   if ($prep.site.terrain_profile -ne 'mountain') { throw 'PUP Mountain Prep profile is not marked as mountain preparation.' }
+  Api 'settings/site' 'Post' @{site_id='mapalad_backup'} | Out-Null
+  $mapalad = Api 'safe-zone'
+  if ($mapalad.selected_site -ne 'mapalad_backup' -or $mapalad.site.center -or $mapalad.safe_zone) { throw 'Mt. Mapalad backup site must have no invented center or safe zone.' }
   Api 'settings/site' 'Post' @{site_id='pup'} | Out-Null
   $pup = Api 'safe-zone'
   if ($pup.selected_site -ne 'pup' -or $pup.safe_zone.id -ne $original.safe_zone.id) { throw 'Saving the Balagbag polygon modified the PUP polygon.' }
