@@ -21,17 +21,39 @@ CREATE TABLE IF NOT EXISTS network_nodes (
   node_type ENUM('BASE_CAMP','CHECKPOINT') NOT NULL,
   display_name VARCHAR(100) NOT NULL,
   is_enabled TINYINT(1) NOT NULL DEFAULT 1,
-  last_seen_at DATETIME NULL
+  last_seen_at DATETIME NULL,
+  latitude DECIMAL(10,7) NULL,
+  longitude DECIMAL(10,7) NULL
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS trail_reference_points (
+  id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  code VARCHAR(24) NOT NULL,
+  label VARCHAR(100) NOT NULL,
+  point_type ENUM('PEAK','JUNCTION','REST_STOP','OTHER') NOT NULL DEFAULT 'OTHER',
+  site_id VARCHAR(32) NOT NULL DEFAULT 'pup',
+  latitude DECIMAL(10,7) NULL,
+  longitude DECIMAL(10,7) NULL,
+  sort_order SMALLINT NOT NULL DEFAULT 0,
+  is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+  is_demo TINYINT(1) NOT NULL DEFAULT 1,
+  UNIQUE KEY uq_reference_site_code(site_id,code)
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS safe_zones (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(100) NOT NULL,
   version INT UNSIGNED NOT NULL,
+  site_id VARCHAR(32) NOT NULL DEFAULT 'pup',
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   created_by VARCHAR(100) NULL,
-  UNIQUE KEY uq_zone_version(version), KEY ix_zone_active(is_active, id)
+  UNIQUE KEY uq_zone_site_version(site_id,version), KEY ix_zone_active(site_id,is_active, id)
 ) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS app_settings (
+  setting_key VARCHAR(64) PRIMARY KEY,
+  setting_value VARCHAR(255) NOT NULL,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+INSERT IGNORE INTO app_settings(setting_key,setting_value) VALUES('selected_site','pup');
 CREATE TABLE IF NOT EXISTS safe_zone_vertices (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   safe_zone_id INT UNSIGNED NOT NULL,
@@ -135,8 +157,8 @@ INSERT IGNORE INTO network_nodes(node_code,node_type,display_name) VALUES
  ('BASE','BASE_CAMP','Base Camp Node'),('CHK','CHECKPOINT','Checkpoint Node');
 INSERT IGNORE INTO system_status(component,state) VALUES ('BASE_CAMP','UNKNOWN'),('SERIAL_BRIDGE','UNKNOWN'),('DATABASE','ONLINE');
 -- Explicitly synthetic coordinates for development only; replace with surveyed trail data.
-INSERT INTO safe_zones(name,version,is_active,created_by)
- SELECT 'DEMO ONLY - Sample corridor',1,1,'demo-seed' WHERE NOT EXISTS(SELECT 1 FROM safe_zones);
+INSERT INTO safe_zones(name,version,site_id,is_active,created_by)
+ SELECT 'DEMO ONLY - Sample corridor',1,'pup',1,'demo-seed' WHERE NOT EXISTS(SELECT 1 FROM safe_zones WHERE site_id='pup');
 INSERT INTO safe_zone_vertices(safe_zone_id,vertex_order,latitude,longitude)
  SELECT z.id,v.ord,v.lat,v.lng FROM safe_zones z
  JOIN (SELECT 1 ord,14.8000 lat,121.0000 lng UNION ALL SELECT 2,14.8000,121.0006 UNION ALL SELECT 3,14.8060,121.0006 UNION ALL SELECT 4,14.8060,121.0000) v

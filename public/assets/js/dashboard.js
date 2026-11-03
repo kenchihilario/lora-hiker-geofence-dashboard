@@ -1,21 +1,66 @@
 (() => {
-  const toast = document.getElementById('toast');
-  let timer;
-  const notify = (message) => {
-    toast.textContent = message;
-    toast.classList.add('visible');
-    clearTimeout(timer);
-    timer = setTimeout(() => toast.classList.remove('visible'), 3200);
-  };
-  document.getElementById('refresh-demo')?.addEventListener('click', () => notify('Demo view refreshed. No live data connection.'));
-  document.getElementById('storm-button')?.addEventListener('click', () => {
-    if (window.confirm('Demo only: show the STORM · TURN BACK action preview? No command will be sent.')) {
-      notify('Demo preview only. No command was queued or transmitted.');
+  const $ = (s) => document.querySelector(s);
+  const $$ = (s) => [...document.querySelectorAll(s)];
+  const toast = $('#toast');
+  let toastTimer;
+  const notify = (message) => { toast.textContent = message; toast.classList.add('visible'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>toast.classList.remove('visible'),3500); };
+  const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const api = async (path, options={}) => { const r=await fetch(`api/${path}`,{cache:'no-store',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}}); const data=await r.json(); if(!r.ok) throw new Error(data.error||`Request failed (${r.status})`); return data; };
+  const timeAgo = (seconds) => seconds == null ? 'No report yet' : seconds < 60 ? `${seconds} sec ago` : `${Math.floor(seconds/60)} min ago`;
+  const localTime = (s) => s ? new Date(s.replace(' ','T')+'Z').toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '—';
+  const hikerHtml = h => { const state=h.live_state||'LINK_LOST', danger=state==='OFF_TRAIL'||state==='EMERGENCY', battery=h.battery_level==null?'—':`${h.battery_level}%`; const heard=h.last_heard_by||'Unknown'; const cls=state==='SAFE'?'state-safe':danger?'state-danger':'state-lost'; return `<article class="hiker-card"><div class="hiker-card-top"><div class="person"><div class="person-avatar ${danger?'avatar-danger':''}">${esc((h.display_name||h.node_id).slice(0,1))}</div><div><strong>${esc(h.display_name)}</strong><small>${esc(h.node_id)} · Hiker Node</small></div></div><span class="state-pill ${cls}"><i></i>${esc(state.replace('_',' '))}</span></div><div class="hiker-coord"><span>LAST KNOWN POSITION · ${h.link_state==='LINK_LOST'?'STALE':'CURRENT'}</span><strong>${h.latitude==null?'No position':`${Number(h.latitude).toFixed(5)} / ${Number(h.longitude).toFixed(5)}`}</strong></div><div class="hiker-stats"><div><small>BATTERY</small><strong class="battery ${(h.battery_level??100)<20?'battery-low':''}">${esc(battery)}</strong></div><div><small>LAST REPORT</small><strong>${esc(timeAgo(h.seconds_since_report))}</strong></div><div><small>LAST HEARD BY</small><strong>${esc(heard)}</strong></div></div><div class="hiker-foot"><span>GPS ${h.gps_accuracy_m==null?'—':`± ${esc(h.gps_accuracy_m)} m`} · ${esc(h.last_rssi_dbm??'—')} dBm</span><span class="demo-chip">${h.test_mode?'DEMO':'LIVE DATA'}</span></div></article>`; };
+  const eventHtml = e => { const kind=e.event_type||'EVENT', danger=e.severity==='CRITICAL'||kind==='OFF_TRAIL', warning=e.severity==='WARNING'; const cls=danger?'danger':warning?'warning':'neutral'; const meta=e.metadata_json?JSON.parse(e.metadata_json):{}; return `<article class="alert-item ${cls}"><span class="alert-icon">${danger?'!':warning?'⚡':'⌖'}</span><div class="alert-copy"><div class="alert-top"><strong>${esc(kind.replaceAll('_',' '))}</strong><time>${esc(localTime(e.created_at))}</time></div><div class="alert-hiker">${esc(e.node_id||'System')} · ${esc(e.severity)}</div><p>${esc(e.message)}${meta.latitude!=null?` · ${Number(meta.latitude).toFixed(5)}, ${Number(meta.longitude).toFixed(5)}`:''}</p>${e.resolved_at?'<span class="resolved-label">Acknowledged</span>':`<button class="text-action resolve-event" data-event-id="${e.id}">Acknowledge <span>→</span></button>`}</div></article>`; };
+  function drawZone(zone,hikers,nodes=[],refs=[],site=null) {
+    const svg=$('.trail-map'); if(!svg)return;
+    const polygon=svg.querySelector('#api-zone'), markerLayer=svg.querySelector('#api-markers'), referenceLayer=svg.querySelector('#api-reference-points'), grid=svg.querySelector('#map-grid'), north=svg.querySelector('#map-north-scale');
+    const vertices=zone?.vertices||[]; const valid=[...vertices,...hikers,...nodes,...refs].filter(p=>p.latitude!=null&&p.longitude!=null);if(site?.center)valid.push(site.center);
+    if(!valid.length){polygon?.setAttribute('points','');markerLayer.innerHTML='';referenceLayer.innerHTML='';return;}
+    const baseCamp=nodes.find(n=>n.node_type==='BASE_CAMP'&&n.latitude!=null&&n.longitude!=null),origin=baseCamp||site?.center||vertices[0]||valid[0],lat0=Number(origin.latitude),lon0=Number(origin.longitude),cos=Math.cos(lat0*Math.PI/180);
+    const project=p=>({x:(Number(p.longitude)-lon0)*cos*111320,y:(Number(p.latitude)-lat0)*110540});
+    const projected=valid.map(project),minX=Math.min(...projected.map(p=>p.x)),maxX=Math.max(...projected.map(p=>p.x)),minY=Math.min(...projected.map(p=>p.y)),maxY=Math.max(...projected.map(p=>p.y));
+    const pad=Math.max(35,(Math.max(maxX-minX,maxY-minY)||1)*.16),viewMinX=minX-pad,viewMinY=minY-pad,width=maxX-minX+pad*2,height=maxY-minY+pad*2;
+    const sx=740/width,sy=410/height,scale=Math.min(sx,sy),vbW=800/scale,vbH=470/scale,viewX=viewMinX-(vbW-width)/2,viewY=viewMinY-(vbH-height)/2;
+    const x=m=>m-viewX,y=m=>viewY+vbH-m;
+    svg.setAttribute('viewBox',`0 0 ${vbW} ${vbH}`);
+    const polyMeters=vertices.map(project);polygon.setAttribute('points',polyMeters.map(p=>`${x(p.x)},${y(p.y)}`).join(' '));
+    const outside=hikers.some(h=>h.latitude!=null&&h.live_state==='OFF_TRAIL');polygon.setAttribute('class',outside?'zone-outside':'zone-safe');
+    const step=Math.pow(10,Math.floor(Math.log10(Math.max(width,height)/6||1)));let gridMarkup='';
+    for(let gx=Math.ceil(viewMinX/step)*step;gx<viewMinX+vbW;gx+=step){gridMarkup+=`<line x1="${x(gx)}" y1="0" x2="${x(gx)}" y2="${vbH}"/><text x="${x(gx)+3}" y="${vbH-5}">${Math.round(gx)} m</text>`;}
+    for(let gy=Math.ceil(viewMinY/step)*step;gy<viewMinY+vbH;gy+=step){gridMarkup+=`<line x1="0" y1="${y(gy)}" x2="${vbW}" y2="${y(gy)}"/><text x="4" y="${y(gy)-3}">${Math.round(gy)} m</text>`;}grid.innerHTML=gridMarkup;
+    const marker=(p,label,kind,detail='')=>{const q=project(p);return `<g class="local-marker ${kind}" transform="translate(${x(q.x)} ${y(q.y)})"><circle r="7"/><text x="11" y="4">${esc(label)}</text><title>${esc(label)}${detail?` · ${esc(detail)}`:''}</title></g>`;};
+    markerLayer.innerHTML=hikers.filter(h=>h.latitude!=null).map(h=>{const age=timeAgo(h.seconds_since_report),when=h.received_at?`${h.received_at} · ${age}`:'No report';const type=h.link_state==='LINK_LOST'?'lost-marker':h.live_state==='OFF_TRAIL'?'outside-marker':'inside-marker';return marker(h,h.node_id,type,h.link_state==='LINK_LOST'?`Last report ${when}`:h.live_state);}).join('')+nodes.map(n=>marker(n,n.display_name,n.node_type==='BASE_CAMP'?'base-marker':'checkpoint-marker')).join('');
+    referenceLayer.innerHTML=refs.map(r=>marker(r,`${r.label}${Number(r.is_demo)?' (DEMO)':''}`,`reference-${String(r.point_type).toLowerCase()}`)).join('');
+    const scaleMeters=Math.max(1,Math.pow(10,Math.floor(Math.log10(width/5)))),scaleX=vbW-30-scaleMeters,scaleY=vbH-24;
+    north.innerHTML=`<path d="M ${vbW-28} 48 L ${vbW-18} 18 L ${vbW-8} 48 Z"/><text x="${vbW-18}" y="12" text-anchor="middle">N</text><line x1="${scaleX}" y1="${scaleY}" x2="${scaleX+scaleMeters}" y2="${scaleY}"/><text x="${scaleX}" y="${scaleY-7}">${scaleMeters} m</text>`;
+    const scaleLabel=$('#map-scale-label');if(scaleLabel)scaleLabel.textContent=`Local frame · origin ${lat0.toFixed(5)}, ${lon0.toFixed(5)} · ${zone.name}${zone.version?` v${zone.version}`:''}`;
+  }
+  function renderConnections(status){ const get=k=>(status.components||[]).find(c=>c.component===k)||{}; const base=get('BASE_CAMP'),bridge=get('SERIAL_BRIDGE'),checkpoint=get('CHECKPOINT'),db=get('DATABASE'); const label=(v)=>v.state||'UNKNOWN'; const els=$$('.connection strong'); if(els[0])els[0].innerHTML=`<i class="status-dot ${label(base)==='ONLINE'?'green':'gray'}"></i> ${esc(label(base))} <em>· Reported by API</em>`; if(els[1])els[1].innerHTML=`<i class="status-dot ${label(bridge)==='ONLINE'?'green':'gray'}"></i> ${esc(label(bridge))} <em>· ${esc(bridge.last_seen_at?timeAgo(Math.max(0,(Date.now()-new Date(bridge.last_seen_at.replace(' ','T')+'Z'))/1000)):'No heartbeat')}</em>`; if(els[2])els[2].innerHTML=`<i class="status-dot ${label(checkpoint)==='ONLINE'?'green':'gray'}"></i> ${esc(label(checkpoint))} <em>· ${esc(checkpoint.last_seen_at?timeAgo(Math.max(0,(Date.now()-new Date(checkpoint.last_seen_at.replace(' ','T')+'Z'))/1000)):'No heartbeat')}</em>`; if(els[3])els[3].innerHTML=`<i class="status-dot ${label(db)==='ONLINE'?'green':'gray'}"></i> ${esc(label(db))} <em>· API connection</em>`; }
+  async function refresh() {
+    try {
+      const [hs, ev, st, z] = await Promise.all([api('hikers'), api('events?limit=8'), api('status'), api('safe-zone')]);
+      const hikers = hs.hikers || [];
+      const cards = $('#hiker-cards'), eventList = $('#api-events'), counter = $('.alert-counter');
+      if (cards) cards.innerHTML = hikers.map(hikerHtml).join('') || '<p class="empty">No configured hikers.</p>';
+      if (eventList) eventList.innerHTML = (ev.events || []).map(eventHtml).join('') || '<p class="empty">No events recorded.</p>';
+      if (counter) counter.textContent = `${(ev.events || []).filter(item => !item.resolved_at && ['WARNING','CRITICAL'].includes(item.severity)).length} ACTIVE`;
+      drawZone(z.safe_zone, hikers, z.network_nodes || [], z.reference_points || [],z.site);
+      renderConnections(st);
+      const demo = hikers.some(h => Number(h.test_mode) === 1);
+      const age = $('#data-age'), mode = $('#data-mode-tag'), state = $('#data-state'), errorBox = $('#api-error');
+      if (state) state.textContent = demo ? 'DEMO DATA' : 'API CONNECTED';
+      if (mode) mode.textContent = demo ? 'DEMO DATA' : 'API DATA';
+      if (age) age.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+      if (errorBox) errorBox.hidden = true;
+    } catch (err) {
+      const errorBox = $('#api-error'), mode = $('#data-mode-tag'), state = $('#data-state');
+      if (errorBox) { errorBox.hidden = false; errorBox.textContent = `API unavailable: ${err.message}. Showing illustrative demo fallback data, not live status.`; }
+      if (mode) mode.textContent = 'DEMO FALLBACK';
+      if (state) state.textContent = 'API OFFLINE';
     }
-  });
-  document.querySelectorAll('.acknowledge').forEach((button) => button.addEventListener('click', () => {
-    button.closest('.alert-item')?.classList.add('acknowledged');
-    button.textContent = 'Demo alert acknowledged';
-    button.disabled = true;
-  }));
+  }
+  $('#refresh-demo')?.addEventListener('click',()=>refresh().then(()=>notify('Dashboard refreshed from local API.')));
+  $('#storm-button')?.addEventListener('click',async()=>{const node=prompt('Enter Hiker Node ID (for example H1), or type ALL:'); if(!node)return;const payload=node.toUpperCase()==='ALL'?{all:true}:{node_id:node.trim()};if(!confirm(`Queue STORM · TURN BACK for ${node.toUpperCase()}? The command will be queued locally; radio delivery is not confirmed.`))return;try{const r=await api('commands/storm-turn-back',{method:'POST',body:JSON.stringify(payload)});notify(`Queued ${r.commands.length} command(s). Waiting for bridge status.`);}catch(e){notify(`Command not queued: ${e.message}`);}});
+  document.addEventListener('click',async e=>{const b=e.target.closest('.resolve-event');if(!b)return;if(!confirm('Acknowledge this dashboard event? The original event record will be retained.'))return;try{await api(`events/${b.dataset.eventId}/resolve`,{method:'POST',body:JSON.stringify({resolved_by:'local-operator'})});await refresh();notify('Event acknowledged.');}catch(err){notify(`Could not acknowledge: ${err.message}`);}});
+  async function initSitePicker(){const sel=$('#site-select');if(!sel)return;try{const data=await api('sites');sel.innerHTML=(data.sites||[]).map(s=>`<option value="${esc(s.id)}" ${s.id===data.selected_site?'selected':''}>${esc(s.display_name)}</option>`).join('');sel.addEventListener('change',async()=>{try{await api('settings/site',{method:'POST',body:JSON.stringify({site_id:sel.value})});location.reload();}catch(e){notify(e.message);}});}catch(e){notify(`Site settings unavailable: ${e.message}`);}}
+  initSitePicker();refresh(); setInterval(refresh,5000);
 })();

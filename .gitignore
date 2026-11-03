@@ -2,3 +2,5 @@ config.php
 *.log
 .DS_Store
 .vscode/
+
+.runtime/

@@ -1,0 +1,10 @@
+const assert = require('node:assert/strict');
+const { bufferTrack } = require('../public/assets/js/safe-zone-geometry.js');
+const p=(x,y)=>({latitude:14.8+y/110540,longitude:121+x/(Math.cos(14.8*Math.PI/180)*111320)});
+const area=points=>Math.abs(points.reduce((sum,a,i)=>{const b=points[(i+1)%points.length];return sum+a.longitude*b.latitude-b.longitude*a.latitude;},0)/2);
+const straight=bufferTrack([p(0,0),p(100,0)],15);assert.equal(straight.length,4);assert.ok(area(straight)>0);assert.ok(straight.some(v=>Math.abs(v.latitude-p(0,0).latitude)>0));console.log('PASS straight GPX corridor');
+const elbow=bufferTrack([p(0,0),p(100,0),p(100,100)],15);assert.equal(elbow.length,6);assert.ok(area(elbow)>0);console.log('PASS L-shaped GPX corridor');
+const loop=bufferTrack([p(0,0),p(100,0),p(100,100),p(0,100),p(0,0)],15);assert.equal(loop.length,4);assert.ok(area(loop)>0);console.log('PASS closed-loop GPX envelope');
+assert.throws(()=>bufferTrack([{latitude:91,longitude:121},p(1,1)],15),/valid latitude.*longitude/);
+assert.throws(()=>bufferTrack([p(0,0),p(1,1)],4),/5–50/);
+console.log('PASS invalid coordinates and width are rejected');
