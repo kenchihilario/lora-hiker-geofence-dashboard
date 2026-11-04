@@ -1,10 +1,8 @@
 <?php
 // API smoke test. It writes demo data and only runs against a dedicated test database.
-$configPath=dirname(__DIR__).'/config.php';
-if(!is_file($configPath)){fwrite(STDERR,"REFUSED: config.php is required to verify the target database name.\n");exit(2);}
-$dbConfig=require $configPath;$dbName=(string)($dbConfig['db_profiles']['demo']['db_name']??'');
 require_once dirname(__DIR__).'/src/db.php';
 require_once dirname(__DIR__).'/src/Services/ApiService.php';
+$dbConfig=config();$dbName=(string)($dbConfig['db_profiles']['demo']['db_name']??'');
 try{require_disposable_test_profile();}catch(Throwable $e){fwrite(STDERR,"REFUSED: ".$e->getMessage()."\n");exit(2);}
 $base=rtrim($argv[1]??'http://127.0.0.1:8000','/');$token=$argv[2]??(string)($dbConfig['bridge_tokens']['demo']??'');
 $apiHost=strtolower((string)parse_url($base,PHP_URL_HOST));if(!in_array($apiHost,['127.0.0.1','localhost','::1'],true)){fwrite(STDERR,"REFUSED: API smoke tests must target loopback.\n");exit(2);}
@@ -27,7 +25,7 @@ check(select_uplink_downlink(['ACK','STORM_TURN_BACK','OFF_TRAIL_ALERT','SOS_ACK
 $status=api_call('GET','/api/status');expect_status(200,$status,'status');if(empty($status['body']['test_database'])){fwrite(STDERR,"REFUSED: API server is not connected to a dedicated test database.
 ");exit(2);}
 expect_status(400,api_call('POST','/api/settings/clear-demo',['confirmation'=>'not-clear']),'clear-demo action requires exact CLEAR confirmation');
-if(($status['body']['active_mode']??'')!=='DEMO'||($status['body']['active_database']??'')!=='hiker_dashboard_test_codex'){fwrite(STDERR,"REFUSED: API server is not connected to the dedicated DEMO test database.\n");exit(2);}
+if(($status['body']['active_mode']??'')!=='DEMO'||($status['body']['active_database']??'')!==$dbName){fwrite(STDERR,"REFUSED: API server is not connected to the configured disposable DEMO database.\n");exit(2);}
 $phaseBefore=api_call('GET','/api/settings/phase-mode');expect_status(200,$phaseBefore,'read phase mode');$originalPhase=$phaseBefore['body']['phase_mode'];expect_status(200,api_call('POST','/api/settings/phase-mode',['phase_mode'=>'PHASE1']),'enable non-Phase-2 storm mode');
 $originalSite=api_call('GET','/api/sites')['body']['selected_site']??'pup';
 expect_status(200,api_call('GET','/api/hikers'),'hikers');

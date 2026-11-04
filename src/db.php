@@ -3,12 +3,24 @@ function config(): array {
     static $c = null;
     if ($c === null) {
         $file = __DIR__ . '/../config.php';
+        if(scratch_test_override_enabled()){
+            $candidate=getenv('TRAILWATCH_TEST_CONFIG')?:'';$runtime=realpath(dirname(__DIR__).'/.runtime');$resolved=realpath($candidate);
+            if(!$runtime||!$resolved||stripos($resolved,$runtime.DIRECTORY_SEPARATOR)!==0)throw new RuntimeException('Scratch test config must be inside the project .runtime folder.');
+            $scratch=require $resolved;$liveName=(string)($scratch['db_profiles']['live']['db_name']??'');
+            if(!preg_match('/^hiker_dashboard_scratch_[a-f0-9]+$/',$liveName))throw new RuntimeException('Scratch server LIVE profile must use a disposable scratch database name.');
+            return $c=$scratch;
+        }
         if (!is_file($file)) throw new RuntimeException('Missing config.php. Copy config.example.php and configure MariaDB.');
         $c = require $file;
     }
     return $c;
 }
-function mode_file_path(): string { return dirname(__DIR__) . '/data/mode.json'; }
+function mode_file_path(): string {
+    if(scratch_test_override_enabled()){$candidate=getenv('TRAILWATCH_TEST_MODE_FILE')?:'';$runtime=realpath(dirname(__DIR__).'/.runtime');$resolved=realpath($candidate);if(!$runtime||!$resolved||stripos($resolved,$runtime.DIRECTORY_SEPARATOR)!==0)throw new RuntimeException('Scratch test mode file must be inside the project .runtime folder.');return $resolved;}
+    return dirname(__DIR__) . '/data/mode.json';
+}
+function scratch_test_override_enabled(): bool { return in_array(PHP_SAPI,['cli','cli-server'],true)&&getenv('TRAILWATCH_SCRATCH_TEST')==='1'; }
+function is_disposable_test_database_name(string $name): bool { return $name==='hiker_dashboard_test_codex'||(scratch_test_override_enabled()&&preg_match('/^hiker_dashboard_scratch_[a-f0-9]+$/',$name)===1); }
 function parse_active_mode(?string $contents): string {
     if ($contents === null) return 'DEMO';
     $d = json_decode($contents, true);
@@ -27,7 +39,7 @@ function db_profile(?string $name=null): array {
     throw new RuntimeException('Database profile is not configured: '.$name);
 }
 function disposable_test_profile_selected(): bool {
-    try { return active_mode()==='DEMO' && (db_profile('demo')['db_name']??null)==='hiker_dashboard_test_codex'; }
+    try { return active_mode()==='DEMO' && is_disposable_test_database_name((string)(db_profile('demo')['db_name']??'')); }
     catch(Throwable $e) { return false; }
 }
 function require_disposable_test_profile(): void {
@@ -35,6 +47,9 @@ function require_disposable_test_profile(): void {
     if(!disposable_test_profile_selected())throw new RuntimeException('Tests require the dedicated hiker_dashboard_test_codex DEMO profile.');
 }
 function simulator_allowed(string $mode): bool { return $mode==='DEMO'; }
+function scratch_live_ingest_allowed(string $databaseName): bool {
+    return PHP_SAPI==='cli-server'&&scratch_test_override_enabled()&&getenv('TRAILWATCH_ALLOW_SCRATCH_INGEST')==='1'&&preg_match('/^hiker_dashboard_scratch_[a-f0-9]+$/',$databaseName)===1;
+}
 function bridge_token(): string {
     $c=config(); $name=active_profile_name();
     return (string)($c['bridge_tokens'][$name] ?? ($name==='demo' ? ($c['bridge_token']??'') : ''));
