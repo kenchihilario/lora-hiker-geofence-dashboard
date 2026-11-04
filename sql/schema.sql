@@ -16,13 +16,16 @@ CREATE TABLE IF NOT EXISTS hiker_nodes (
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS network_nodes (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  node_code VARCHAR(16) NOT NULL UNIQUE,
+  node_code VARCHAR(16) NOT NULL,
+  site_id VARCHAR(32) NOT NULL DEFAULT 'pup',
   node_type ENUM('BASE_CAMP','CHECKPOINT') NOT NULL,
   display_name VARCHAR(100) NOT NULL,
   is_enabled TINYINT(1) NOT NULL DEFAULT 1,
   last_seen_at DATETIME NULL,
   latitude DECIMAL(10,7) NULL,
-  longitude DECIMAL(10,7) NULL
+  longitude DECIMAL(10,7) NULL,
+  is_verified TINYINT(1) NOT NULL DEFAULT 0,
+  UNIQUE KEY uq_network_site_code(site_id,node_code)
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS trail_reference_points (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -35,6 +38,7 @@ CREATE TABLE IF NOT EXISTS trail_reference_points (
   sort_order SMALLINT NOT NULL DEFAULT 0,
   is_enabled TINYINT(1) NOT NULL DEFAULT 1,
   is_demo TINYINT(1) NOT NULL DEFAULT 1,
+  is_verified TINYINT(1) NOT NULL DEFAULT 0,
   UNIQUE KEY uq_reference_site_code(site_id,code)
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS safe_zones (
@@ -55,6 +59,13 @@ CREATE TABLE IF NOT EXISTS app_settings (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 INSERT IGNORE INTO app_settings(setting_key,setting_value) VALUES('selected_site','pup'),('phase_mode','PHASE1');
+CREATE TABLE IF NOT EXISTS site_locations (
+  site_id VARCHAR(32) PRIMARY KEY,
+  latitude DECIMAL(10,7) NULL,
+  longitude DECIMAL(10,7) NULL,
+  is_verified TINYINT(1) NOT NULL DEFAULT 0,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS safe_zone_vertices (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   safe_zone_id INT UNSIGNED NOT NULL,

@@ -7,7 +7,10 @@ function packet_is_demo_or_test(array $data): bool {
     $u=is_array($data['uplink']??null)?$data['uplink']:[];$f=is_array($u['flags']??null)?$u['flags']:[];
     return !empty($data['is_demo'])||!empty($data['is_rehearsal'])||!empty($f['test_mode'])||!empty($data['test_mode']);
 }
-function should_reject_live_packet(string $mode,array $data): bool { return $mode==='LIVE'&&packet_is_demo_or_test($data); }
+function should_reject_live_packet(string $mode,array $data,?string $databaseName=null,bool $scratchException=false): bool {
+    if($mode!=='LIVE'||!packet_is_demo_or_test($data))return false;
+    return !($scratchException&&$databaseName!==null&&preg_match('/^hiker_dashboard_scratch_[a-f0-9]+$/',$databaseName)===1);
+}
 function clear_demo_allowed(string $mode): bool { return $mode==='DEMO'; }
 function site_allowed_in_mode(string $mode,array $site): bool { return $mode!=='LIVE'||(empty($site['is_demo'])&&empty($site['is_rehearsal'])); }
 function demo_row_count(PDO $pdo): int {
@@ -17,6 +20,12 @@ function gps_valid_fix($accuracy,$satellites): bool { return $accuracy!==null&&$
 function source_label(array $r,?string $mode=null): string { $mode=$mode??active_mode();return !empty($r['is_rehearsal'])?'REHEARSAL':(!empty($r['test_mode'])?'TEST':(!empty($r['is_demo'])||$mode==='DEMO'?'DEMO':'REAL')); }
 function research_flags_eligible_sql(string $alias): string {
     return "$alias.is_demo=0 AND $alias.is_rehearsal=0 AND $alias.test_mode=0";
+}
+function schema_table_exists(PDO $pdo,string $table): bool {
+    $q=$pdo->prepare('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE() AND table_name=? AND table_type=\'BASE TABLE\'');$q->execute([$table]);return (int)$q->fetchColumn()>0;
+}
+function schema_column_exists(PDO $pdo,string $table,string $column): bool {
+    $q=$pdo->prepare('SELECT COUNT(*) FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name=? AND column_name=?');$q->execute([$table,$column]);return (int)$q->fetchColumn()>0;
 }
 function clear_demo_data(PDO $pdo): array {
     $legacyRowsKept=['positions'=>(int)$pdo->query('SELECT COUNT(*) FROM positions')->fetchColumn(),'alerts'=>(int)$pdo->query('SELECT COUNT(*) FROM alerts')->fetchColumn()];
@@ -92,9 +101,12 @@ function polygon_self_intersects(array $p): bool {
     for($i=0;$i<$n;$i++){ $a=$p[$i];$b=$p[($i+1)%$n];for($j=$i+1;$j<$n;$j++){if($j===$i||($j+1)%$n===$i||($i+1)%$n===$j)continue;$c=$p[$j];$d=$p[($j+1)%$n];$o1=$cross($a,$b,$c);$o2=$cross($a,$b,$d);$o3=$cross($c,$d,$a);$o4=$cross($c,$d,$b);if(($o1*$o2)<0&&($o3*$o4)<0||abs($o1)<1e-12&&$on($a,$b,$c)||abs($o2)<1e-12&&$on($a,$b,$d)||abs($o3)<1e-12&&$on($c,$d,$a)||abs($o4)<1e-12&&$on($c,$d,$b))return true;}}
     return false;
 }
-function valid_node_code(PDO $pdo,string $code,string $type): bool {
+function valid_node_code(PDO $pdo,string $code,string $type,?string $siteId=null): bool {
     if(!preg_match('/^[A-Za-z0-9_-]{1,16}$/',$code))return false;
-    $q=$pdo->prepare('SELECT 1 FROM network_nodes WHERE node_code=? AND node_type=? AND is_enabled=1');$q->execute([$code,$type]);return(bool)$q->fetchColumn();
+    if(!schema_column_exists($pdo,'network_nodes','site_id')){$q=$pdo->prepare('SELECT 1 FROM network_nodes WHERE node_code=? AND node_type=? AND is_enabled=1');$q->execute([$code,$type]);return(bool)$q->fetchColumn();}
+    $site=$siteId??selected_site($pdo);$q=$pdo->prepare('SELECT 1 FROM network_nodes WHERE node_code=? AND node_type=? AND is_enabled=1 AND site_id=?');$q->execute([$code,$type,$site]);if($q->fetchColumn())return true;
+    $q=$pdo->prepare('SELECT COUNT(*) FROM network_nodes WHERE site_id=?');$q->execute([$site]);if((int)$q->fetchColumn()>0)return false;
+    $expected=$type==='BASE_CAMP'?'BASE':($type==='CHECKPOINT'?'CHK':null);$configured=site_config()[$site]['network_nodes']??[];return $expected===$code&&array_key_exists($expected,$configured);
 }
 function downlink_type(string $commandType): string {
     return match($commandType){'ACK'=>'acknowledgement','OFF_TRAIL_ALERT'=>'alert','SOS_ACK'=>'SOS received','STORM_TURN_BACK'=>'storm turn-back',default=>throw new InvalidArgumentException('unknown downlink type')};
@@ -110,7 +122,7 @@ function flag_bool($value,string $name): bool {
     if($value===0||$value===1)return(bool)$value;
     throw new InvalidArgumentException("flags.$name must be boolean");
 }
-function ingest_packet(PDO $pdo,array $d): array {
+function ingest_packet(PDO $pdo,array $d,bool $dryRun=false): array {
     $rootAllowed=['uplink','reception','is_demo','is_rehearsal'];if(array_diff(array_keys($d),$rootAllowed))throw new InvalidArgumentException('bridge envelope accepts only uplink, reception, and optional is_demo / is_rehearsal');
     $u=$d['uplink']??null;$r=$d['reception']??null;if(!is_array($u)||!is_array($r))throw new InvalidArgumentException('uplink and reception objects are required');
     $uplinkAllowed=['node_id','sequence_number','latitude','longitude','gps_accuracy_m','satellite_count','battery_level','flags'];if(array_diff(array_keys($u),$uplinkAllowed))throw new InvalidArgumentException('uplink contains an unsupported field');
@@ -126,9 +138,9 @@ function ingest_packet(PDO $pdo,array $d): array {
     if($battery!==null&&(filter_var($battery,FILTER_VALIDATE_INT)===false||(int)$battery<0||(int)$battery>100))throw new InvalidArgumentException('battery_level must be 0–100 or null');
     $rawFlags=$u['flags'];if(!is_array($rawFlags))throw new InvalidArgumentException('uplink.flags must be an object');$flagNames=['link_lost','low_battery','emergency','turn_back_received','test_mode'];if(array_diff(array_keys($rawFlags),$flagNames))throw new InvalidArgumentException('uplink.flags contains an unsupported flag');$flags=[];foreach($flagNames as $f)$flags[$f]=flag_bool($rawFlags[$f]??false,$f);$test=$flags['test_mode'];
     $siteId=selected_site($pdo);$siteFlags=site_record_flags($siteId);$demo=(active_mode()==='DEMO'||!empty($d['is_demo'])||$test||$siteFlags['is_demo'])?1:0;$rehearsal=(!empty($d['is_rehearsal'])||$siteFlags['is_rehearsal'])?1:0;
-    $baseId=trim((string)$r['base_id']);if(!valid_node_code($pdo,$baseId,'BASE_CAMP'))throw new InvalidArgumentException('reception.base_id must identify an enabled Base Camp Node');
+    $baseId=trim((string)$r['base_id']);if(!valid_node_code($pdo,$baseId,'BASE_CAMP',$siteId))throw new InvalidArgumentException('reception.base_id must identify an enabled Base Camp Node');
     $path=$r['path_type'];if(!in_array($path,['DIRECT','CHECKPOINT_RELAY'],true))throw new InvalidArgumentException('reception.path_type must be DIRECT or CHECKPOINT_RELAY');
-    $checkpointId=null;$checkpointRssi=null;if($path==='CHECKPOINT_RELAY'){$checkpointId=trim((string)($r['checkpoint_id']??''));if(!valid_node_code($pdo,$checkpointId,'CHECKPOINT'))throw new InvalidArgumentException('checkpoint_id must identify an enabled Checkpoint Node');$checkpointRssi=$r['checkpoint_rssi_dbm']??null;if(filter_var($checkpointRssi,FILTER_VALIDATE_INT)===false||(int)$checkpointRssi< -200||(int)$checkpointRssi>100)throw new InvalidArgumentException('checkpoint_rssi_dbm must be -200–100');}elseif(isset($r['checkpoint_id'])||isset($r['checkpoint_rssi_dbm']))throw new InvalidArgumentException('direct reception cannot carry checkpoint relay fields');
+    $checkpointId=null;$checkpointRssi=null;if($path==='CHECKPOINT_RELAY'){$checkpointId=trim((string)($r['checkpoint_id']??''));if(!valid_node_code($pdo,$checkpointId,'CHECKPOINT',$siteId))throw new InvalidArgumentException('checkpoint_id must identify an enabled Checkpoint Node');$checkpointRssi=$r['checkpoint_rssi_dbm']??null;if(filter_var($checkpointRssi,FILTER_VALIDATE_INT)===false||(int)$checkpointRssi< -200||(int)$checkpointRssi>100)throw new InvalidArgumentException('checkpoint_rssi_dbm must be -200–100');}elseif(isset($r['checkpoint_id'])||isset($r['checkpoint_rssi_dbm']))throw new InvalidArgumentException('direct reception cannot carry checkpoint relay fields');
     $rssi=$r['rssi_dbm']??null;$snr=$r['snr_db']??null;$hop=$r['relay_hop_delay_ms']??null;if($rssi!==null&&(filter_var($rssi,FILTER_VALIDATE_INT)===false||(int)$rssi< -200||(int)$rssi>100))throw new InvalidArgumentException('rssi_dbm must be -200–100');if($snr!==null&&(!is_numeric($snr)||!is_finite((float)$snr)||(float)$snr< -50||(float)$snr>50))throw new InvalidArgumentException('snr_db must be -50–50');if($hop!==null&&(filter_var($hop,FILTER_VALIDATE_INT)===false||(int)$hop<0||(int)$hop>300000))throw new InvalidArgumentException('relay_hop_delay_ms must be 0–300000');
     $heardBy=$path==='CHECKPOINT_RELAY'?$checkpointId:$baseId;$received=$r['received_at']??gmdate('Y-m-d H:i:s');$dt=date_create((string)$received);if(!$dt)throw new InvalidArgumentException('reception.received_at must be a valid date/time');$received=$dt->format('Y-m-d H:i:s');
     $h=$pdo->prepare('SELECT id FROM hiker_nodes WHERE node_id=? AND is_enabled=1');$h->execute([$id]);$hiker=$h->fetchColumn();if(!$hiker)throw new InvalidArgumentException('unknown or disabled hiker node_id');
@@ -153,8 +165,8 @@ function ingest_packet(PDO $pdo,array $d): array {
         if($flags['emergency'])$eligibleCommands[]='SOS_ACK';$command=select_uplink_downlink($eligibleCommands);
         if($command!==null){$commandTestMode=$test?1:0;$commandDemo=$demo;$commandRehearsal=$rehearsal;if($command==='STORM_TURN_BACK'&&$activeCampaign){$commandTestMode=max($commandTestMode,(int)$activeCampaign['test_mode']);$commandDemo=max($commandDemo,(int)$activeCampaign['is_demo'],$commandTestMode);$commandRehearsal=max($commandRehearsal,(int)$activeCampaign['is_rehearsal']);}$stormCampaignId=($command==='STORM_TURN_BACK'&&$activeCampaign)?(int)$activeCampaign['id']:null;$q=$pdo->prepare('INSERT INTO downlink_commands(hiker_node_id,site_id,base_id,sequence_number,storm_campaign_id,route_type,route_via_node_id,command_type,payload_json,test_mode,is_demo,is_rehearsal) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)');$q->execute([$hiker,$siteId,$baseId,(int)$seq,$stormCampaignId,$route['route_type'],$route['route_via_node_id'],$command,json_value(['packet_id'=>$packet]),$commandTestMode,$commandDemo,$commandRehearsal]);if($command==='STORM_TURN_BACK'&&$activeCampaign){$q=$pdo->prepare('UPDATE storm_turnback_campaigns SET last_queued_at=CURRENT_TIMESTAMP(3) WHERE id=?');$q->execute([(int)$activeCampaign['id']]);}}
       }
-      $pdo->commit();return ['packet_id'=>$packet,'reception_id'=>$receptionId,'duplicate'=>$duplicate,'classification'=>$inside===null?'UNCLASSIFIED':($inside?'INSIDE':'OUTSIDE'),'route'=>$route,'test_mode'=>$test,'is_demo'=>(bool)$demo,'is_rehearsal'=>(bool)$rehearsal,'command_queued'=>!$duplicate&&$command!==null];
-    }catch(Throwable $e){$pdo->rollBack();throw $e;}
+      if($dryRun)$pdo->rollBack();else $pdo->commit();return ['packet_id'=>$packet,'reception_id'=>$receptionId,'duplicate'=>$duplicate,'classification'=>$inside===null?'UNCLASSIFIED':($inside?'INSIDE':'OUTSIDE'),'route'=>$route,'test_mode'=>$test,'is_demo'=>(bool)$demo,'is_rehearsal'=>(bool)$rehearsal,'command_queued'=>!$duplicate&&$command!==null];
+    }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
 }
 function research_summary(PDO $pdo): array {
     $packetEligible=research_flags_eligible_sql('p')." AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(p.flags_json,'$.test_mode')),'false') NOT IN ('true','1')";

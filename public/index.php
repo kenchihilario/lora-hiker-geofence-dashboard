@@ -20,17 +20,18 @@ function e(string $value): string { return htmlspecialchars($value, ENT_QUOTES, 
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101918">
   <title><?= e($dashboardMode) ?> · Trailwatch · Operations</title>
-  <link rel="stylesheet" href="assets/css/dashboard.css?v=20261104-2">
+  <link rel="stylesheet" href="assets/css/dashboard.css?v=20261104-4">
   <script src="assets/js/source-flags.js?v=20261104-1" defer></script>
-  <script src="assets/js/dashboard.js?v=20261104-11" defer></script>
+  <script src="assets/js/dashboard-label-layout.js?v=20261104-1" defer></script>
+  <script src="assets/js/dashboard.js?v=20261104-13" defer></script>
 </head>
-<body>
+<body data-active-mode="<?= e($dashboardMode) ?>">
 <div class="app-shell">
   <aside class="sidebar" aria-label="Main navigation">
     <a class="brand" href="index.php" aria-label="Trailwatch home"><span class="brand-mark">T</span><span>trailwatch<small>BASE CAMP CONSOLE</small></span></a>
     <div class="nav-label">OPERATIONS</div>
     <nav>
-      <a class="nav-link active" href="index.php"><span class="nav-icon">⌖</span>Live dashboard<span class="nav-count">02</span></a>
+      <a class="nav-link active" href="index.php"><span class="nav-icon">⌖</span>Live dashboard<span class="nav-count"><?= $dashboardMode==='LIVE'?'00':'02' ?></span></a>
       <a class="nav-link" href="safe-zone.php"><span class="nav-icon">⬡</span>Safe zone</a>
       <a class="nav-link" href="settings.php"><span class="nav-icon">⚙</span>Settings</a>
       <a class="nav-link disabled" href="#hikers"><span class="nav-icon">♙</span>Hiker nodes</a>
@@ -49,7 +50,7 @@ function e(string $value): string { return htmlspecialchars($value, ENT_QUOTES, 
       <div class="connection"><span class="connection-symbol connected">⌂</span><div><small>BASE CAMP NODE</small><strong><i class="status-dot green"></i> Unknown <em>· API</em></strong></div></div>
       <div class="connection"><span class="connection-symbol muted">⌁</span><div><small>SERIAL BRIDGE</small><strong><i class="status-dot gray"></i> Unknown <em>· Awaiting heartbeat</em></strong></div></div>
       <div class="connection"><span class="connection-symbol connected">⌖</span><div><small>CHECKPOINT NODE</small><strong><i class="status-dot amber"></i> No checkpoint report <em>· API</em></strong></div></div>
-      <div class="connection"><span class="connection-symbol connected">▤</span><div><small>LOCAL DATA</small><strong><i class="status-dot green"></i> Connecting <em id="data-state">API</em></strong></div></div>
+      <div class="connection"><span class="connection-symbol connected">▤</span><div><small>LOCAL DATA</small><strong><i class="status-dot green"></i> Waiting <em id="data-state">for API response</em></strong></div></div>
     </section>
 
     <div class="content-grid"><div class="api-error" id="api-error" hidden></div><div class="database-check-inline" id="database-check-inline" role="status">Checking active database…</div>
@@ -67,17 +68,17 @@ function e(string $value): string { return htmlspecialchars($value, ENT_QUOTES, 
         <div class="map-legend"><span><i class="legend-dot safe"></i>Safe</span><span><i class="legend-dot danger"></i>Off trail</span><span><i class="legend-line"></i>Safe-zone boundary</span><span class="legend-note">Position markers · meter grid</span></div>
       </section>
 
-      <section class="panel alert-panel" aria-labelledby="alerts-title"><div class="panel-heading"><div><div class="section-kicker">ATTENTION</div><h2 id="alerts-title">Recent alerts</h2></div><span class="alert-counter">2 ACTIVE</span></div>
-        <div class="alert-list" id="api-events"><?php foreach ($alerts as $alert): ?><article class="alert-item <?= e($alert['class']) ?>"><span class="alert-icon"><?= $alert['class'] === 'danger' ? '!' : ($alert['class'] === 'warning' ? '⚡' : '⌖') ?></span><div class="alert-copy"><div class="alert-top"><strong><?= e($alert['type']) ?></strong><time><?= e($alert['time']) ?></time></div><div class="alert-hiker"><?= e($alert['hiker']) ?></div><p><?= e($alert['detail']) ?></p><?php if ($alert['class'] === 'danger'): ?><button class="text-action acknowledge">Acknowledge demo alert <span>→</span></button><?php endif; ?></div></article><?php endforeach; ?></div>
+      <section class="panel alert-panel" aria-labelledby="alerts-title"><div class="panel-heading"><div><div class="section-kicker">ATTENTION</div><h2 id="alerts-title">Recent alerts</h2></div><span class="alert-counter"><?= $dashboardMode==='LIVE'?'0 ACTIVE':'2 ACTIVE' ?></span></div>
+        <div class="alert-list" id="api-events"><?php if($dashboardMode==='LIVE'): ?><p class="empty">No events recorded.</p><?php else: foreach ($alerts as $alert): ?><article class="alert-item <?= e($alert['class']) ?>"><span class="alert-icon"><?= $alert['class'] === 'danger' ? '!' : ($alert['class'] === 'warning' ? '⚡' : '⌖') ?></span><div class="alert-copy"><div class="alert-top"><strong><?= e($alert['type']) ?></strong><time><?= e($alert['time']) ?></time></div><div class="alert-hiker"><?= e($alert['hiker']) ?></div><p><?= e($alert['detail']) ?></p><?php if ($alert['class'] === 'danger'): ?><button class="text-action acknowledge">Acknowledge demo alert <span>→</span></button><?php endif; ?></div></article><?php endforeach; endif; ?></div>
         <a class="panel-footer" href="#logs">View event log <span>→</span></a>
       </section>
 
-      <section class="panel hikers-panel" id="hikers" aria-labelledby="hikers-title"><div class="panel-heading"><div><div class="section-kicker">FIELD TEAM</div><h2 id="hikers-title">Hiker nodes <span class="heading-count">02</span></h2></div><div class="editor-buttons"><button class="button button-storm" id="storm-button"><span>⚠</span> ARM STORM · TURN BACK</button><button class="button button-quiet" id="cancel-storm-button">Cancel active</button></div></div>
-        <div class="hiker-grid" id="hiker-cards"><?php foreach ($hikers as $hiker): $isDanger = $hiker['state'] === 'OFF TRAIL'; ?><article class="hiker-card"><div class="hiker-card-top"><div class="person"><div class="person-avatar <?= $isDanger ? 'avatar-danger' : '' ?>"><?= e(substr($hiker['name'], 0, 1)) ?></div><div><strong><?= e($hiker['name']) ?></strong><small><?= e($hiker['id']) ?> <span>·</span> Hiker Node</small></div></div><span class="state-pill <?= $isDanger ? 'state-danger' : 'state-safe' ?>"><i></i><?= e($hiker['state']) ?></span></div>
+      <section class="panel hikers-panel" id="hikers" aria-labelledby="hikers-title"><div class="panel-heading"><div><div class="section-kicker">FIELD TEAM</div><h2 id="hikers-title">Hiker nodes <span class="heading-count"><?= $dashboardMode==='LIVE'?'00':'02' ?></span></h2></div><div class="editor-buttons"><button class="button button-storm" id="storm-button"><span>⚠</span> ARM STORM · TURN BACK</button><button class="button button-quiet" id="cancel-storm-button">Cancel active</button></div></div>
+        <div class="hiker-grid" id="hiker-cards"><?php if($dashboardMode==='LIVE'): ?><p class="empty">No hikers registered.</p><?php else: foreach ($hikers as $hiker): $isDanger = $hiker['state'] === 'OFF TRAIL'; ?><article class="hiker-card"><div class="hiker-card-top"><div class="person"><div class="person-avatar <?= $isDanger ? 'avatar-danger' : '' ?>"><?= e(substr($hiker['name'], 0, 1)) ?></div><div><strong><?= e($hiker['name']) ?></strong><small><?= e($hiker['id']) ?> <span>·</span> Hiker Node</small></div></div><span class="state-pill <?= $isDanger ? 'state-danger' : 'state-safe' ?>"><i></i><?= e($hiker['state']) ?></span></div>
           <div class="hiker-coord"><span>LAST KNOWN POSITION</span><strong><?= e($hiker['lat']) ?> <span>/</span> <?= e($hiker['lng']) ?></strong></div>
           <div class="hiker-stats"><div><small>BATTERY</small><strong class="battery <?= $hiker['battery'] < 20 ? 'battery-low' : '' ?>"><span class="battery-icon">▰</span> <?= e((string)$hiker['battery']) ?>%</strong></div><div><small>LAST REPORT</small><strong><?= e($hiker['age']) ?></strong></div><div><small>LAST HEARD BY</small><strong><?= e($hiker['heard']) ?></strong></div></div>
           <div class="hiker-foot"><span>GPS <?= e($hiker['accuracy']) ?> <b>·</b> <?= e($hiker['rssi']) ?></span><span class="demo-chip">DEMO</span></div>
-        </article><?php endforeach; ?></div>
+        </article><?php endforeach; endif; ?></div>
       </section>
       <section class="panel packet-log-panel" id="logs" aria-labelledby="packet-log-title"><div class="panel-heading"><div><div class="section-kicker">RECEPTIONS</div><h2 id="packet-log-title">Packet log</h2></div><div><a class="offline-pill" href="api/export.csv?type=packets">Export packet CSV</a> <a class="offline-pill" href="api/export.csv?type=events">Export event CSV</a></div></div><div class="packet-log-scroll"><table class="packet-log-table"><thead><tr><th>Time</th><th>Hiker / seq</th><th>Heard by</th><th>Relay hop</th><th>Route</th><th>Duplicate</th></tr></thead><tbody id="packet-log-rows"><tr><td colspan="6" class="empty">Loading packet receptions…</td></tr></tbody></table></div></section>
     </div>

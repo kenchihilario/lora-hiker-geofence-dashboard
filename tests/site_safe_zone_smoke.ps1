@@ -6,7 +6,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $modePath = Join-Path $root 'data\mode.json'
-if (Test-Path -LiteralPath $modePath) {
+if ($env:TRAILWATCH_SCRATCH_TEST -ne '1' -and (Test-Path -LiteralPath $modePath)) {
   try { if ((Get-Content -Raw -LiteralPath $modePath | ConvertFrom-Json).mode -eq 'LIVE') { throw 'REFUSED: tests cannot run while LIVE mode is active.' } }
   catch { if ($_.Exception.Message -like 'REFUSED:*') { throw }; throw 'REFUSED: invalid mode file; refusing database tests.' }
 }
@@ -16,8 +16,8 @@ if ($targetHost -notin @('127.0.0.1','localhost','::1','[::1]')) { throw 'REFUSE
 $runtime = Join-Path $root '.runtime'
 New-Item -ItemType Directory -Force -Path $runtime | Out-Null
 $probe = Join-Path $runtime 'site_test_db_probe.php'
-[IO.File]::WriteAllText($probe,'<?php $c=require __DIR__."/../config.php"; echo $c["db_profiles"]["demo"]["db_name"]??"";')
-try { $configuredDemoDb = & $php $probe; if ($LASTEXITCODE -ne 0 -or $configuredDemoDb -ne 'hiker_dashboard_test_codex') { throw 'REFUSED: tests require the dedicated DEMO test DB profile.' } }
+[IO.File]::WriteAllText($probe,'<?php require __DIR__."/../src/db.php"; echo db_profile("demo")["db_name"]??"";')
+try { $configuredDemoDb = & $php $probe; $allowedDb = $configuredDemoDb -eq 'hiker_dashboard_test_codex' -or ($env:TRAILWATCH_SCRATCH_TEST -eq '1' -and $configuredDemoDb -match '^hiker_dashboard_scratch_[a-f0-9]{12}$'); if ($LASTEXITCODE -ne 0 -or -not $allowedDb) { throw 'REFUSED: tests require the dedicated DEMO test DB or an explicitly enabled scratch profile.' } }
 finally { Remove-Item -LiteralPath $probe -ErrorAction SilentlyContinue }
 function Api($path, $method='Get', $body=$null) {
   $args = @{ Uri="$BaseUrl/$path"; Method=$method; TimeoutSec=10 }
@@ -25,7 +25,7 @@ function Api($path, $method='Get', $body=$null) {
   Invoke-RestMethod @args
 }
 $status = Api 'status'
-if (-not $status.test_database -or $status.active_mode -ne 'DEMO' -or $status.active_database -ne 'hiker_dashboard_test_codex') { throw 'REFUSED: site smoke test requires active DEMO test database hiker_dashboard_test_codex.' }
+if (-not $status.test_database -or $status.active_mode -ne 'DEMO' -or $status.active_database -ne $Database) { throw 'REFUSED: site smoke test requires the configured disposable DEMO database.' }
 $zoneCountBefore = & $MySql -uroot $Database -N -e "SELECT COUNT(*) FROM safe_zones WHERE site_id='balagbag';"
 if ($LASTEXITCODE -ne 0) { throw 'Could not read the initial Balagbag polygon history count.' }
 $zoneCountBefore = [int]($zoneCountBefore | Select-Object -Last 1)

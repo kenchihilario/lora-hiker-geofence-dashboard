@@ -37,7 +37,15 @@ LIVE rejects incoming records marked demo, rehearsal, or `test_mode`; rejection 
 
 ## Tests
 
-Tests that use MariaDB require the active DEMO profile to point exactly to `hiker_dashboard_test_codex`. They fail closed in LIVE mode. Scratch tests create and drop only a randomly named `hiker_dashboard_scratch_*` database. From PowerShell:
+Tests that use MariaDB require the active DEMO profile to point to `hiker_dashboard_test_codex`, or use the explicit project-local scratch override used by the scratch harnesses. Tests fail closed in ordinary LIVE mode. Scratch tests create and drop only randomly named `hiker_dashboard_scratch_*` databases. The LIVE first-run integration harness uses an isolated LIVE-mode PHP server whose `live` profile is a scratch database; it never opens `hiker_dashboard_live`.
+
+To run the complete PHP, Node, and PowerShell suite without touching the configured demo or LIVE databases, run `& $php tests/run_scratch_suite.php`. It creates and drops disposable scratch databases; the LIVE-mode integration portion requires the project to remain in LIVE mode so it can verify the simulator guard, and still redirects every database connection to a scratch database. `tests/test-preflight.js` is a safety helper loaded by other tests; running it alone while LIVE mode is selected is expected to refuse.
+
+The read-only LIVE readiness checklist is available in Settings while LIVE is active and from `& $php tools/live_check.php`. It reports PASS/FAIL for database reachability and table checks, migration checksums, tokens (without displaying them), site and field registry readiness, flagged rows, local-only guard, and latest LIVE backup age. An empty LIVE database is expected to fail the field-setup checks until the operator configures the site.
+
+Before using the field registry in an existing database, back it up and apply migration 007. The project did not apply migration 007 to the restored LIVE database in this task. After a reviewed backup, an operator may run `& $php tools/migrate_db.php --profile=live --allow-live-schema`; this changes the selected LIVE schema. Do not run it as part of testing.
+
+From Settings, register hiker node IDs and phone models, save Base Camp and Checkpoint node records, and add/edit/archive reference markers. Site center and network node coordinates are kept in the selected database. Config coordinates are fallback display references and remain marked `UNSURVEYED`; enter only surveyed/operator-supplied coordinates and mark them verified after confirmation. Archiving disables a row without deleting it. The existing safe-zone GPX editor remains the polygon workflow.
 
 ```powershell
 $php = 'C:\xampp\php\php.exe'
@@ -45,15 +53,20 @@ $php = 'C:\xampp\php\php.exe'
 & $php tests/polygon_validation_test.php
 & $php tests/research_summary_test.php
 & $php tests/mode_safety_test.php
+& $php tests/live_check_test.php
+& $php tests/registry_service_test.php
 & $php tests/clear_demo_scratch_test.php
 & $php tests/live_schema_scratch_test.php
 & $php tests/migration_scratch_test.php
 & $php tests/api_smoke.php http://127.0.0.1:8000
 node tests/gpx_corridor_test.js
 node tests/dashboard_packet_log_contract_test.js
+node tests/live_empty_dashboard_test.js
 node tests/offline_static_test.js
 .\tests\site_safe_zone_smoke.ps1 -BaseUrl http://127.0.0.1:8000/api -Database hiker_dashboard_test_codex
 ```
+
+When the project is already in LIVE mode, `& $php tests/live_first_run_scratch_test.php` creates, exercises, and drops an isolated scratch database through a temporary loopback PHP server. The test refuses to switch the project's mode and never connects to `hiker_dashboard_live`.
 
 The endpoint smoke test writes clearly marked DEMO/TEST rows in the disposable DB and restores its previous active site, phase, and PUP polygon. Do not pass a LIVE bridge token or change the active mode while testing.
 
@@ -74,7 +87,7 @@ Scenarios are in `tools/scenarios/`: normal walk, drift off trail, hiker silent,
 
 Only operator-provided coordinates are included: Balagbag peak (`14.8243087, 121.1804131`, 770 m), the user-provided Balagbag place pin (`14.8239931, 121.1795801`), and the PUP Oval pin (`14.598126, 121.0120373`). The pins are explicitly UNSURVEYED/UNVERIFIED. PUP's boundary remains DEMO. Mt. Mapalad and Base Camp/Checkpoint coordinates remain unset.
 
-Record a GPX track with a phone GPS app while walking the intended corridor, export the `.gpx` file, select the intended site in Settings or `/safe-zone`, choose the file locally, preview its corridor, and explicitly save it after checking the surveyed path. No file is uploaded to a map service. Points exactly on a safe-zone polygon edge count as INSIDE. A closed GPX loop whose end is within 0.5 m of its start is recognized, the repeated endpoint is removed, then the current code expands the ring radially from its vertex centroid by the selected half-width; other tracks use a local perpendicular-offset corridor. This is a preview rule, not survey validation.
+Record a GPX track with a phone GPS app while walking the intended corridor, export the `.gpx` file, select the intended site in Settings or `/safe-zone`, choose the file locally, preview its corridor, and explicitly save it after checking the surveyed path. No file is uploaded to a map service. Tracks over 250 points are simplified locally with Douglas–Peucker before preview; set the meter tolerance and check the resulting point count and measured maximum deviation in the preview message. If simplification still leaves more than 250 points, increase the tolerance and preview again. Corridor half-width remains 5–50 m. Points exactly on a safe-zone polygon edge count as INSIDE. A closed GPX loop whose end is within 0.5 m of its start is recognized, the repeated endpoint is removed, then the current code expands the ring radially from its vertex centroid by the selected half-width; other tracks use a local perpendicular-offset corridor. This is a preview rule, not survey validation.
 
 ## Local API and integration boundary
 
@@ -91,8 +104,14 @@ The routes below return JSON except the CSV export routes. Bridge routes require
 - `POST /api/commands/storm-turn-back`
 - `POST /api/events/{id}/resolve`
 - `POST /api/bridge/ingest`, `POST /api/bridge/status`
+- `POST /api/bridge/validate` (bridge token plus loopback; dry-run validation; no committed rows)
 - `GET /api/commands/pending`, `POST /api/commands/{id}/status`
 - `GET /api/research/summary`
+- `POST /api/hikers`, `PUT /api/hikers/{node_id}` (registration, edits, deactivation)
+- `GET /api/network-nodes`, `POST /api/network-nodes`, `PUT /api/network-nodes/{node_code}`
+- `POST /api/reference-points`, `PUT /api/reference-points/{id}`
+- `PUT /api/sites/location` (current selected site)
+- `GET /api/live-check` (LIVE-only, loopback, read-only readiness)
 - `GET /api/export.csv?type=packets`, `GET /api/export.csv?type=events`
 
 ### Bridge fields, reception paths, and timing
