@@ -26,6 +26,9 @@ function Api($path, $method='Get', $body=$null) {
 }
 $status = Api 'status'
 if (-not $status.test_database -or $status.active_mode -ne 'DEMO' -or $status.active_database -ne 'hiker_dashboard_test_codex') { throw 'REFUSED: site smoke test requires active DEMO test database hiker_dashboard_test_codex.' }
+$zoneCountBefore = & $MySql -uroot $Database -N -e "SELECT COUNT(*) FROM safe_zones WHERE site_id='balagbag';"
+if ($LASTEXITCODE -ne 0) { throw 'Could not read the initial Balagbag polygon history count.' }
+$zoneCountBefore = [int]($zoneCountBefore | Select-Object -Last 1)
 $originalSite = (Api 'sites').selected_site
 Api 'settings/site' 'Post' @{site_id='pup'} | Out-Null
 $original = Api 'safe-zone'
@@ -58,4 +61,7 @@ try {
   Api 'settings/site' 'Post' @{site_id=$originalSite} | Out-Null
   & $MySql -uroot $Database -e "DELETE FROM safe_zone_vertices WHERE safe_zone_id IN (SELECT id FROM safe_zones WHERE site_id='balagbag' AND name='$testName'); DELETE FROM safe_zones WHERE site_id='balagbag' AND name='$testName';"
   if ($LASTEXITCODE -ne 0) { throw 'Could not remove test polygon from disposable database.' }
+  $zoneCountAfter = & $MySql -uroot $Database -N -e "SELECT COUNT(*) FROM safe_zones WHERE site_id='balagbag';"
+  if ($LASTEXITCODE -ne 0 -or [int]($zoneCountAfter | Select-Object -Last 1) -ne $zoneCountBefore) { throw 'FAIL: Balagbag smoke test did not restore the polygon history count.' }
+  Write-Output "PASS: Balagbag smoke cleanup restores polygon history count ($zoneCountAfter rows)"
 }
