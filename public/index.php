@@ -20,7 +20,7 @@ function e(string $value): string { return htmlspecialchars($value, ENT_QUOTES, 
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101918">
   <title><?= e($dashboardMode) ?> · Trailwatch · Operations</title>
-  <link rel="stylesheet" href="assets/css/dashboard.css?v=20261104-2">
+  <link rel="stylesheet" href="assets/css/dashboard.css?v=20261104-3">
   <script src="assets/js/source-flags.js?v=20261104-1" defer></script>
   <script src="assets/js/dashboard.js?v=20261104-12" defer></script>
 </head>
