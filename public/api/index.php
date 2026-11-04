@@ -18,6 +18,11 @@ try {
    }
    $pdo=db();respond(ingest_packet($pdo,$incoming),201);
  }
+ if($path==='/live-check'&&$method==='GET'){
+   if(active_mode()!=='LIVE')respond(['error'=>'LIVE readiness check is available only while LIVE mode is active'],409);
+   require_once __DIR__.'/../../src/Services/LiveCheckService.php';
+   respond(live_check_report(db(),config(),dirname(__DIR__,2)));
+ }
  if($path==='/settings/mode'&&$method==='POST'){
    $v=body();$to=$v['mode']??'';if(!in_array($to,['DEMO','LIVE'],true))throw new InvalidArgumentException('mode must be DEMO or LIVE');
    $from=active_mode();if($to===$from)respond(['active_mode'=>$from,'unchanged'=>true]);
