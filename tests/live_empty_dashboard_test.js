@@ -21,7 +21,7 @@ const drawZone = vm.runInNewContext(`(${source.slice(start, end).trim()})`, cont
 
 drawZone(null, [], [], [], { name: 'Mt. Balagbag', center: { latitude: 14.8243087, longitude: 121.1804131 } });
 if (!svg.attributes.viewBox || !scaleLabel.textContent.includes('no safe zone set')) throw new Error('empty safe-zone response did not render a local metric frame');
-if (polygon.attributes.points !== '') throw new Error('missing safe zone unexpectedly rendered a polygon');
+if (polygon.attributes.d !== '') throw new Error('missing safe zone unexpectedly rendered a safe-zone path');
 
 drawZone(null, [{ node_id: 'H1', latitude: null, longitude: null }], [], [], { name: 'Mt. Balagbag', center: null });
 if (markers.innerHTML !== '' || scaleLabel.textContent !== 'Local metric view · no positioned records') throw new Error('null coordinates were treated as a position');

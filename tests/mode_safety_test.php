@@ -17,8 +17,8 @@ check_mode(simulator_allowed('DEMO')&&!simulator_allowed('LIVE'),'simulator is b
 check_mode(is_local_remote_addr('127.0.0.1')&&is_local_remote_addr('::1')&&!is_local_remote_addr('192.168.1.4'),'local-only guard accepts loopback only');
 check_mode(($config['local_only']??null)===true,'local-only guard defaults on in local configuration');
 check_mode(gps_valid_fix(10,5)&&!gps_valid_fix(10.01,5)&&!gps_valid_fix(10,4)&&!gps_valid_fix(null,8),'proposal GPS valid-fix rule is derived and null-safe');
-check_mode(source_label(['is_demo'=>1,'is_rehearsal'=>0,'test_mode'=>1])==='TEST'&&source_label(['is_demo'=>1,'is_rehearsal'=>1,'test_mode'=>0])==='REHEARSAL'&&source_label([])==='DEMO','export source labels distinguish rehearsal, test, demo, and real rows');
-check_mode(source_label([], 'LIVE')==='REAL','LIVE rows without demo flags export as REAL');
+check_mode(source_label(['is_demo'=>1,'is_rehearsal'=>0,'test_mode'=>1])==='TEST'&&source_label(['is_demo'=>1,'is_rehearsal'=>1,'test_mode'=>0])==='REHEARSAL'&&source_label(['is_bench'=>1])==='BENCH'&&source_label([])==='DEMO','export source labels distinguish rehearsal, test, demo, BENCH, and real rows');
+check_mode(source_label([], 'LIVE')==='REAL'&&str_contains(research_flags_eligible_sql('p'),'p.is_bench=0'),'LIVE rows without flags remain REAL and BENCH uses the central research exclusion');
 $schema=file_get_contents($root.'/sql/schema.sql');
 check_mode(!preg_match('/CREATE DATABASE|^\s*USE\s+/mi',$schema),'schema does not hard-code a database name');
 check_mode(!str_contains($schema,'DEMO ONLY - Sample corridor')&&!preg_match('/INSERT\s+(?:IGNORE\s+)?INTO\s+(?:hiker_nodes|network_nodes|safe_zones|safe_zone_vertices)/i',$schema),'base schema has no demo hikers, nodes, or safe-zone seed');

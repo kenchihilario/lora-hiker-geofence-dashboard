@@ -20,10 +20,10 @@ function e(string $value): string { return htmlspecialchars($value, ENT_QUOTES, 
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#101918">
   <title><?= e($dashboardMode) ?> · Trailwatch · Operations</title>
-  <link rel="stylesheet" href="assets/css/dashboard.css?v=20261104-4">
-  <script src="assets/js/source-flags.js?v=20261104-1" defer></script>
+  <link rel="stylesheet" href="assets/css/dashboard.css?v=20261105-2">
+  <script src="assets/js/source-flags.js?v=20261105-2" defer></script>
   <script src="assets/js/dashboard-label-layout.js?v=20261104-1" defer></script>
-  <script src="assets/js/dashboard.js?v=20261104-13" defer></script>
+  <script src="assets/js/dashboard.js?v=20261105-2" defer></script>
 </head>
 <body data-active-mode="<?= e($dashboardMode) ?>">
 <div class="app-shell">
@@ -43,6 +43,7 @@ function e(string $value): string { return htmlspecialchars($value, ENT_QUOTES, 
   <main class="main-area">
     <header class="topbar"><div class="crumb">Operations <span>/</span> Live dashboard</div><div class="top-meta"><strong id="top-mode-indicator" class="mode-indicator <?= $dashboardMode==='LIVE'?'mode-live':'mode-demo' ?>"><?= $dashboardMode==='LIVE'?'LIVE':'DEMO / SIMULATION' ?></strong><div class="clock"><span class="live-dot"></span> LOCAL API <span class="divider">·</span> <span id="data-age">Connecting…</span></div><button class="icon-button" aria-label="Help" title="Help">?</button><div class="top-avatar">BC</div></div></header>
     <div class="demo-banner <?= $dashboardMode==='LIVE'?'mode-live':'mode-demo' ?>" id="demo-banner"><span class="demo-icon">i</span><div><strong id="main-mode-banner"><?= $dashboardMode==='LIVE'?'LIVE DATABASE':'DEMO / SIMULATION MODE' ?></strong><span id="mode-banner-detail"><?= $dashboardMode==='LIVE'?'Separate live database. Demo, rehearsal, and test packets are rejected.':'Simulation records only. No radio delivery or real hiker status is implied.' ?></span></div><span class="demo-tag" id="data-mode-tag"><?= $dashboardMode ?></span></div>
+    <div class="bench-session-banner" id="bench-session-banner" hidden role="status"><strong>BENCH SESSION ACTIVE</strong> · New LIVE uplinks are marked BENCH and excluded from research summaries.</div>
 
     <section class="page-heading"><div><div class="eyebrow">TEST SITE</div><h1 id="dashboard-title"><?= $dashboardMode==='LIVE'?'Live monitoring':'Demo / simulation overview' ?></h1><p>Monitor hiker locations, safety status, and system connections.</p><label class="site-picker">Test site <select id="site-select" aria-label="Test site"></select></label><span class="phase-indicator" id="dashboard-phase-mode" role="status">Phase —</span></div><button class="button button-quiet" id="refresh-demo"><span>↻</span> Refresh view</button></section>
 
@@ -61,7 +62,7 @@ function e(string $value): string { return htmlspecialchars($value, ENT_QUOTES, 
           <svg class="trail-map" viewBox="0 0 800 470" role="img" aria-labelledby="map-desc" preserveAspectRatio="xMidYMid meet">
             <title id="map-desc">Local metric trail sketch; no map tiles or network map data are loaded.</title>
             <rect id="map-background" width="800" height="470" fill="#e9ece8"/>
-            <g id="map-grid"></g><polygon id="api-zone" points=""/><g id="api-reference-points"></g><g id="api-markers"></g><g id="map-north-scale"></g>
+            <g id="map-grid"></g><path id="api-zone" fill-rule="evenodd"/><g id="api-reference-points"></g><g id="api-markers"></g><g id="map-north-scale"></g>
           </svg>
           <div class="map-scale" id="map-scale-label">Meters · local frame</div>
         </div>

@@ -29,6 +29,6 @@ assert.equal(closedSimplified.points[0].longitude,closedSimplified.points.at(-1)
 assert.ok(closedSimplified.maxDeviationMeters<=2.000001);
 assert.ok(bufferTrack(closedSimplified.points,15).length<=500);
 console.log('PASS 3000-point closed GPX simplifies, retains closure, and stays under polygon vertex limit');
-assert.ok(editor.includes('TrailGeometry.simplifyTrack(track,tolerance)')&&editor.includes('measured maximum deviation')&&editor.includes('simplified.length>250'));
+const editorFlat=editor.replace(/\s+/g,'');assert.ok(editorFlat.includes('TrailGeometry.simplifyTrack(track,tolerance)')&&editorFlat.includes('measuredmaximumdeviation')&&editorFlat.includes('simplified.length>250'));
 assert.ok(editorPage.includes('id="gpx-tolerance"')&&editorPage.includes('min="5" max="50"'));
 console.log('PASS GPX editor exposes configurable simplification, deviation/point-count preview, and preserves 5–50 m corridor limits');

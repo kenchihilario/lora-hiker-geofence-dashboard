@@ -1,0 +1,24 @@
+<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<gpx version="1.1" creator="OsmAndRouterV2" xmlns="http://www.topografix.com/GPX/1/1" xmlns:osmand="https://osmand.net/docs/technical/osmand-file-formats/osmand-gpx" xmlns:gpxtpx="https://www8.garmin.com/xmlschemas/TrackPointExtensionv1.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.topografix.com/GPX/1/1 https://www.topografix.com/GPX/1/1/gpx.xsd">
+  <metadata>
+    <name>PUP oval</name>
+  </metadata>
+  <trk>
+    <name>PUP oval</name>
+    <trkseg>
+      <trkpt lat="14.5984572" lon="121.0115997" />
+      <trkpt lat="14.5980101" lon="121.0116443" />
+      <trkpt lat="14.5975654" lon="121.0117268" />
+      <trkpt lat="14.5973889" lon="121.0119648" />
+      <trkpt lat="14.5974087" lon="121.0122211" />
+      <trkpt lat="14.5976152" lon="121.0124218" />
+      <trkpt lat="14.5979353" lon="121.0124309" />
+      <trkpt lat="14.5983832" lon="121.0123653" />
+      <trkpt lat="14.5986655" lon="121.012307" />
+      <trkpt lat="14.5988001" lon="121.01214" />
+      <trkpt lat="14.5988167" lon="121.0118694" />
+      <trkpt lat="14.598665" lon="121.0116463" />
+      <trkpt lat="14.5984551" lon="121.0115975" />
+    </trkseg>
+  </trk>
+</gpx>

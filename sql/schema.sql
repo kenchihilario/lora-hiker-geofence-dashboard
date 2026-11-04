@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
   setting_value VARCHAR(255) NOT NULL,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
-INSERT IGNORE INTO app_settings(setting_key,setting_value) VALUES('selected_site','pup'),('phase_mode','PHASE1');
+INSERT IGNORE INTO app_settings(setting_key,setting_value) VALUES('selected_site','pup'),('phase_mode','PHASE1'),('bench_session_enabled','0');
 CREATE TABLE IF NOT EXISTS site_locations (
   site_id VARCHAR(32) PRIMARY KEY,
   latitude DECIMAL(10,7) NULL,
@@ -69,10 +69,11 @@ CREATE TABLE IF NOT EXISTS site_locations (
 CREATE TABLE IF NOT EXISTS safe_zone_vertices (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   safe_zone_id INT UNSIGNED NOT NULL,
+  ring_index SMALLINT UNSIGNED NOT NULL DEFAULT 0,
   vertex_order SMALLINT UNSIGNED NOT NULL,
   latitude DECIMAL(10,7) NOT NULL,
   longitude DECIMAL(10,7) NOT NULL,
-  UNIQUE KEY uq_vertex_order(safe_zone_id, vertex_order),
+  UNIQUE KEY uq_vertex_ring_order(safe_zone_id, ring_index, vertex_order),
   CONSTRAINT fk_vertex_zone FOREIGN KEY(safe_zone_id) REFERENCES safe_zones(id) ON DELETE CASCADE
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS uplink_packets (
@@ -95,6 +96,7 @@ CREATE TABLE IF NOT EXISTS uplink_packets (
   test_mode TINYINT(1) NOT NULL DEFAULT 0,
   is_demo TINYINT(1) NOT NULL DEFAULT 0,
   is_rehearsal TINYINT(1) NOT NULL DEFAULT 0,
+  is_bench TINYINT(1) NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY ix_uplink_hiker(hiker_node_id),
   UNIQUE KEY uq_hiker_site_sequence(site_id,hiker_node_id,sequence_number),
@@ -113,6 +115,7 @@ CREATE TABLE IF NOT EXISTS packet_receptions (
   site_id VARCHAR(32) NOT NULL DEFAULT 'pup',
   is_demo TINYINT(1) NOT NULL DEFAULT 0,
   is_rehearsal TINYINT(1) NOT NULL DEFAULT 0,
+  is_bench TINYINT(1) NOT NULL DEFAULT 0,
   path_type ENUM('DIRECT','CHECKPOINT_RELAY','UNKNOWN') NOT NULL DEFAULT 'UNKNOWN',
   relay_rssi_dbm SMALLINT NULL,
   rssi_dbm SMALLINT NULL,
@@ -139,6 +142,7 @@ CREATE TABLE IF NOT EXISTS downlink_commands (
   test_mode TINYINT(1) NOT NULL DEFAULT 0,
   is_demo TINYINT(1) NOT NULL DEFAULT 0,
   is_rehearsal TINYINT(1) NOT NULL DEFAULT 0,
+  is_bench TINYINT(1) NOT NULL DEFAULT 0,
   created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
   fetched_at DATETIME(3) NULL,
   sent_at DATETIME(3) NULL,
@@ -175,6 +179,7 @@ CREATE TABLE IF NOT EXISTS system_events (
   test_mode TINYINT(1) NOT NULL DEFAULT 0,
   is_demo TINYINT(1) NOT NULL DEFAULT 0,
   is_rehearsal TINYINT(1) NOT NULL DEFAULT 0,
+  is_bench TINYINT(1) NOT NULL DEFAULT 0,
   site_id VARCHAR(32) NOT NULL DEFAULT 'pup',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   resolved_at DATETIME NULL,
@@ -191,6 +196,7 @@ CREATE TABLE IF NOT EXISTS operator_actions (
   test_mode TINYINT(1) NOT NULL DEFAULT 0,
   is_demo TINYINT(1) NOT NULL DEFAULT 0,
   is_rehearsal TINYINT(1) NOT NULL DEFAULT 0,
+  is_bench TINYINT(1) NOT NULL DEFAULT 0,
   site_id VARCHAR(32) NOT NULL DEFAULT 'pup',
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY ix_action_time(created_at),
