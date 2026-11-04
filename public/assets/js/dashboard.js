@@ -15,34 +15,45 @@
   function drawZone(zone,hikers,nodes=[],refs=[],site=null) {
     const svg=$('.trail-map'); if(!svg)return;
     const polygon=svg.querySelector('#api-zone'), markerLayer=svg.querySelector('#api-markers'), referenceLayer=svg.querySelector('#api-reference-points'), grid=svg.querySelector('#map-grid'), north=svg.querySelector('#map-north-scale');
-    const vertices=zone?.vertices||[]; const valid=[...vertices,...hikers,...nodes,...refs].filter(p=>p.latitude!=null&&p.longitude!=null);if(site?.center)valid.push(site.center);
-    if(!valid.length){polygon?.setAttribute('points','');markerLayer.innerHTML='';referenceLayer.innerHTML='';return;}
-    const baseCamp=nodes.find(n=>n.node_type==='BASE_CAMP'&&n.latitude!=null&&n.longitude!=null),origin=baseCamp||site?.center||vertices[0]||valid[0],lat0=Number(origin.latitude),lon0=Number(origin.longitude),cos=Math.cos(lat0*Math.PI/180);
+    const vertices=Array.isArray(zone?.vertices)?zone.vertices:[];
+    const hasCoordinates=p=>p?.latitude!==null&&p?.latitude!==undefined&&p?.longitude!==null&&p?.longitude!==undefined&&p?.latitude!==''&&p?.longitude!==''&&Number.isFinite(Number(p.latitude))&&Number.isFinite(Number(p.longitude));
+    const valid=[...vertices,...hikers,...nodes,...refs,...(site?.center?[site.center]:[])].filter(hasCoordinates);
+    svg.setAttribute('viewBox','0 0 800 470');
+    if(!valid.length){polygon.setAttribute('points','');markerLayer.innerHTML='';referenceLayer.innerHTML='';grid.innerHTML='';north.innerHTML='';const label=$('#map-scale-label');if(label)label.textContent='Local metric view · no positioned records';return;}
+    const baseCamp=nodes.find(n=>n.node_type==='BASE_CAMP'&&hasCoordinates(n)),origin=(baseCamp&&hasCoordinates(baseCamp)?baseCamp:null)||(hasCoordinates(site?.center)?site.center:null)||(hasCoordinates(vertices[0])?vertices[0]:valid[0]),lat0=Number(origin.latitude),lon0=Number(origin.longitude),cos=Math.cos(lat0*Math.PI/180);
     const project=p=>({x:(Number(p.longitude)-lon0)*cos*111320,y:(Number(p.latitude)-lat0)*110540});
-    const projected=valid.map(project),minX=Math.min(...projected.map(p=>p.x)),maxX=Math.max(...projected.map(p=>p.x)),minY=Math.min(...projected.map(p=>p.y)),maxY=Math.max(...projected.map(p=>p.y));
-    const pad=Math.max(35,(Math.max(maxX-minX,maxY-minY)||1)*.16),viewMinX=minX-pad,viewMinY=minY-pad,width=maxX-minX+pad*2,height=maxY-minY+pad*2;
-    const sx=740/width,sy=410/height,scale=Math.min(sx,sy),vbW=800/scale,vbH=470/scale,viewX=viewMinX-(vbW-width)/2,viewY=viewMinY-(vbH-height)/2;
-    const x=m=>m-viewX,y=m=>viewY+vbH-m;
-    svg.setAttribute('viewBox',`0 0 ${vbW} ${vbH}`);
+    const projected=valid.map(project),minDataX=Math.min(...projected.map(p=>p.x)),maxDataX=Math.max(...projected.map(p=>p.x)),minDataY=Math.min(...projected.map(p=>p.y)),maxDataY=Math.max(...projected.map(p=>p.y));
+    const hasPolygon=vertices.length>=3,pad=hasPolygon?Math.max(35,Math.max(maxDataX-minDataX,maxDataY-minDataY)*.14):0;
+    let width=Math.max(maxDataX-minDataX+pad*2,hasPolygon?1:1000),height=Math.max(maxDataY-minDataY+pad*2,hasPolygon?1:600);
+    const aspect=800/470;if(width/height<aspect)width=height*aspect;else height=width/aspect;
+    const centerX=(minDataX+maxDataX)/2,centerY=(minDataY+maxDataY)/2,viewMinX=centerX-width/2,viewMinY=centerY-height/2;
+    const plot={left:38,right:762,top:40,bottom:414},plotWidth=plot.right-plot.left,plotHeight=plot.bottom-plot.top;
+    const scale=Math.min(plotWidth/width,plotHeight/height),drawWidth=width*scale,drawHeight=height*scale,offsetX=plot.left+(plotWidth-drawWidth)/2,offsetY=plot.top+(plotHeight-drawHeight)/2;
+    const x=m=>offsetX+(m-viewMinX)*scale,y=m=>offsetY+drawHeight-(m-viewMinY)*scale;
     const polyMeters=vertices.map(project);polygon.setAttribute('points',polyMeters.map(p=>`${x(p.x)},${y(p.y)}`).join(' '));
     const outside=hikers.some(h=>h.latitude!=null&&h.live_state==='OFF_TRAIL');polygon.setAttribute('class',outside?'zone-outside':'zone-safe');
-    const step=Math.pow(10,Math.floor(Math.log10(Math.max(width,height)/6||1)));let gridMarkup='';
-    for(let gx=Math.ceil(viewMinX/step)*step;gx<viewMinX+vbW;gx+=step){gridMarkup+=`<line x1="${x(gx)}" y1="0" x2="${x(gx)}" y2="${vbH}"/><text x="${x(gx)+3}" y="${vbH-5}">${Math.round(gx)} m</text>`;}
-    for(let gy=Math.ceil(viewMinY/step)*step;gy<viewMinY+vbH;gy+=step){gridMarkup+=`<line x1="0" y1="${y(gy)}" x2="${vbW}" y2="${y(gy)}"/><text x="4" y="${y(gy)-3}">${Math.round(gy)} m</text>`;}grid.innerHTML=gridMarkup;
-    const marker=(p,label,kind,detail='')=>{const q=project(p);return `<g class="local-marker ${kind}" transform="translate(${x(q.x)} ${y(q.y)})"><circle r="7"/><text x="11" y="4">${esc(label)}</text><title>${esc(label)}${detail?` · ${esc(detail)}`:''}</title></g>`;};
-    markerLayer.innerHTML=hikers.filter(h=>h.latitude!=null).map(h=>{const age=timeAgo(h.seconds_since_report),when=h.received_at?`${h.received_at} · ${age}`:'No report';const type=h.link_state==='LINK_LOST'?'lost-marker':h.live_state==='OFF_TRAIL'?'outside-marker':'inside-marker';return marker(h,h.node_id,type,h.link_state==='LINK_LOST'?`Last report ${when}`:h.live_state);}).join('')+nodes.map(n=>marker(n,n.display_name,n.node_type==='BASE_CAMP'?'base-marker':'checkpoint-marker')).join('');
-    referenceLayer.innerHTML=refs.map(r=>marker(r,`${r.label}${r.unsurveyed?' · UNSURVEYED':''}${Number(r.is_demo)?' (DEMO)':''}`,`reference-${String(r.point_type).toLowerCase()}`)).join('');
-    const scaleMeters=Math.max(1,Math.pow(10,Math.floor(Math.log10(width/5)))),scaleX=vbW-30-scaleMeters,scaleY=vbH-24;
-    north.innerHTML=`<path d="M ${vbW-28} 48 L ${vbW-18} 18 L ${vbW-8} 48 Z"/><text x="${vbW-18}" y="12" text-anchor="middle">N</text><line x1="${scaleX}" y1="${scaleY}" x2="${scaleX+scaleMeters}" y2="${scaleY}"/><text x="${scaleX}" y="${scaleY-7}">${scaleMeters} m</text>`;
-    const scaleLabel=$('#map-scale-label');if(scaleLabel)scaleLabel.textContent=`Local frame · origin ${lat0.toFixed(5)}, ${lon0.toFixed(5)} · ${zone.name}${zone.version?` v${zone.version}`:''}`;
+    const niceStep=target=>{const power=Math.pow(10,Math.floor(Math.log10(Math.max(target,1)))),n=target/power;return(n<=1?1:n<=2?2:n<=5?5:10)*power;};
+    const step=niceStep(Math.max(width,height)/6);let gridMarkup='';
+    for(let gx=Math.ceil(viewMinX/step)*step;gx<=viewMinX+width;gx+=step){const px=x(gx);gridMarkup+=`<line x1="${px}" y1="${plot.top}" x2="${px}" y2="${plot.bottom}" vector-effect="non-scaling-stroke"/><text x="${px+3}" y="${plot.bottom-5}">${Math.round(gx)} m</text>`;}
+    for(let gy=Math.ceil(viewMinY/step)*step;gy<=viewMinY+height;gy+=step){const py=y(gy);gridMarkup+=`<line x1="${plot.left}" y1="${py}" x2="${plot.right}" y2="${py}" vector-effect="non-scaling-stroke"/><text x="${plot.left+4}" y="${py-3}">${Math.round(gy)} m</text>`;}grid.innerHTML=gridMarkup;
+    const wrapLabel=value=>{const words=String(value).split(/\s+/);const lines=[];let line='';for(const word of words){if(line&&`${line} ${word}`.length>30){lines.push(line);line=word;}else line=line?`${line} ${word}`:word;}if(line)lines.push(line);return lines;};
+    const marker=(p,label,kind,detail='')=>{const q=project(p),px=x(q.x),py=y(q.y),lines=wrapLabel(label),anchor=px>560?'end':'start',tx=anchor==='end'?-12:12;const lineMarkup=lines.map((line,i)=>`<tspan x="${tx}" dy="${i===0?0:13}">${esc(line)}</tspan>`).join('');return `<g class="local-marker ${kind}" transform="translate(${px} ${py})"><circle r="7" vector-effect="non-scaling-stroke"/><text x="${tx}" y="${lines.length>1?-5:4}" text-anchor="${anchor}">${lineMarkup}</text><title>${esc(label)}${detail?` · ${esc(detail)}`:''}</title></g>`;};
+    markerLayer.innerHTML=hikers.filter(hasCoordinates).map(h=>{const age=timeAgo(h.seconds_since_report),when=h.received_at?`${h.received_at} · ${age}`:'No report';const type=h.link_state==='LINK_LOST'?'lost-marker':h.live_state==='OFF_TRAIL'?'outside-marker':'inside-marker';return marker(h,h.node_id,type,h.link_state==='LINK_LOST'?`Last report ${when}`:h.live_state);}).join('')+nodes.filter(hasCoordinates).map(n=>marker(n,n.display_name,n.node_type==='BASE_CAMP'?'base-marker':'checkpoint-marker',n.is_verified?'':'UNSURVEYED')).join('');
+    referenceLayer.innerHTML=refs.filter(hasCoordinates).map(r=>marker(r,`${r.label}${r.unsurveyed?' · UNSURVEYED':''}${Number(r.is_demo)?' (DEMO)':''}`,`reference-${String(r.point_type).toLowerCase()}`)).join('');
+    const scaleMeters=niceStep(105/scale),scalePx=scaleMeters*scale,scaleX=58,scaleY=450;
+    north.innerHTML=`<path d="M 755 78 L 765 48 L 775 78 Z"/><text x="765" y="43" text-anchor="middle">N</text><line x1="${scaleX}" y1="${scaleY}" x2="${scaleX+scalePx}" y2="${scaleY}" vector-effect="non-scaling-stroke"/><text x="${scaleX}" y="${scaleY-8}">${Math.round(scaleMeters)} m</text>`;
+    const scaleLabel=$('#map-scale-label');if(scaleLabel)scaleLabel.textContent=`Local frame · origin ${lat0.toFixed(5)}, ${lon0.toFixed(5)} · ${zone?.name||'no safe zone set'}${zone?.version?` v${zone.version}`:''}`;
   }
   function renderConnections(status){ const get=k=>(status.components||[]).find(c=>c.component===k)||{}; const base=get('BASE_CAMP'),bridge=get('SERIAL_BRIDGE'),checkpoint=get('CHECKPOINT'),db=get('DATABASE'); const label=(v)=>v.state||'UNKNOWN'; const els=$$('.connection strong'); if(els[0])els[0].innerHTML=`<i class="status-dot ${label(base)==='ONLINE'?'green':'gray'}"></i> ${esc(label(base))} <em>· Reported by API</em>`; if(els[1])els[1].innerHTML=`<i class="status-dot ${label(bridge)==='ONLINE'?'green':'gray'}"></i> ${esc(label(bridge))} <em>· ${esc(bridge.last_seen_at?timeAgo(Math.max(0,(Date.now()-new Date(bridge.last_seen_at.replace(' ','T')+'Z'))/1000)):'No heartbeat')}</em>`; if(els[2])els[2].innerHTML=`<i class="status-dot ${label(checkpoint)==='ONLINE'?'green':'gray'}"></i> ${esc(label(checkpoint))} <em>· ${esc(checkpoint.last_seen_at?timeAgo(Math.max(0,(Date.now()-new Date(checkpoint.last_seen_at.replace(' ','T')+'Z'))/1000)):'No heartbeat')}</em>`; if(els[3])els[3].innerHTML=`<i class="status-dot ${label(db)==='ONLINE'?'green':'gray'}"></i> ${esc(label(db))} <em>· API connection</em>`; }
   async function refresh() {
     try {
-      const [hs, ev, st, z, phase, packetLog] = await Promise.all([api('hikers'), api('events?limit=8'), api('status'), api('safe-zone'), api('settings/phase-mode'), api('logs/packets?limit=20')]);
+      const st = await api('status');
+      const checkLine=$('#database-check-inline'),statusHasError=!!st.live_demo_count_error;
+      if(checkLine){checkLine.hidden=false;checkLine.textContent=`Active database: ${st.active_database} · records flagged demo/rehearsal/test: ${st.demo_row_count}`;checkLine.classList.toggle('api-error',statusHasError);checkLine.classList.toggle('database-error',statusHasError);checkLine.setAttribute('role',statusHasError?'alert':'status');}
+      const [hs, ev, z, phase, packetLog] = await Promise.all([api('hikers'), api('events?limit=8'), api('safe-zone'), api('settings/phase-mode'), api('logs/packets?limit=20')]);
       const hikers = hs.hikers || [];
       const cards = $('#hiker-cards'), eventList = $('#api-events'), counter = $('.alert-counter');
-      if (cards) cards.innerHTML = hikers.map(hikerHtml).join('') || '<p class="empty">No configured hikers.</p>';
+      if (cards) cards.innerHTML = hikers.map(hikerHtml).join('') || `<p class="empty">${st.active_mode==='LIVE'?'No hikers registered.':'No configured hikers.'}</p>`;
       if (eventList) eventList.innerHTML = (ev.events || []).map(eventHtml).join('') || '<p class="empty">No events recorded.</p>';
       if (counter) counter.textContent = `${(ev.events || []).filter(item => !item.resolved_at && ['WARNING','CRITICAL'].includes(item.severity)).length} ACTIVE`;
       const packetRows=$('#packet-log-rows'); if(packetRows) packetRows.innerHTML=(packetLog.packets||[]).map(packetReceptionHtml).join('')||'<tr><td colspan="6" class="empty">No packet receptions recorded.</td></tr>';
@@ -56,14 +67,16 @@
       const age = $('#data-age'), mode = $('#data-mode-tag'), state = $('#data-state'), errorBox = $('#api-error');
       const label=(demo?'DEMO / SIMULATION MODE':'LIVE DATABASE')+(visibleFlags.length?` · ${visibleFlags.join(' / ')} DATA`:'' );if(state)state.textContent=demo?'DEMO DATA':'LIVE DATABASE';if(mode)mode.textContent=label;
       const top=$('#top-mode-indicator'),banner=$('#main-mode-banner'),detail=$('#mode-banner-detail'),box=$('#demo-banner'),title=$('#dashboard-title');if(top){top.textContent=demo?'DEMO / SIMULATION':'LIVE';top.className=`mode-indicator ${demo?'mode-demo':'mode-live'}`;}if(banner)banner.textContent=label;if(detail)detail.textContent=demo?'Simulation records only. No radio delivery or real hiker status is implied.':(visibleFlags.length?'Flagged records are present in the live database. Review the red database check below.':'Separate live database. Demo, rehearsal, and test packets are rejected.');if(box)box.className=`demo-banner ${demo?'mode-demo':'mode-live'}`;if(title)title.textContent=demo?'Demo / simulation overview':'Live monitoring';document.title=`${st.active_mode} · Trailwatch · Operations`;
-      const checkLine=$('#database-check-inline'),errorInLive=!!st.live_demo_count_error;if(checkLine){checkLine.hidden=false;checkLine.textContent=`Active database: ${st.active_database} · records flagged demo/rehearsal/test: ${st.demo_row_count}`;checkLine.classList.toggle('api-error',errorInLive);checkLine.classList.toggle('database-error',errorInLive);checkLine.setAttribute('role',errorInLive?'alert':'status');}
+      if(checkLine){checkLine.classList.toggle('api-error',!!st.live_demo_count_error);checkLine.classList.toggle('database-error',!!st.live_demo_count_error);}
       if (age) age.textContent = `Updated ${new Date().toLocaleTimeString()}`;
       if (errorBox) errorBox.hidden = true;
     } catch (err) {
       const errorBox = $('#api-error'), mode = $('#data-mode-tag'), state = $('#data-state');
-      if (errorBox) { errorBox.hidden = false; errorBox.textContent = `API unavailable: ${err.message}. Displayed fallback records are labelled DEMO and are never live status.`; }
-      if (mode) mode.textContent = 'DEMO FALLBACK';
+      const isLive=document.body?.dataset.activeMode==='LIVE';
+      if (errorBox) { errorBox.hidden = false; errorBox.textContent = `API unavailable: ${err.message}. ${isLive?'LIVE database status could not be confirmed. No demo data is substituted.':'Only explicitly labelled illustrative demo data is shown.'}`; }
+      if (mode) mode.textContent = isLive?'LIVE · API OFFLINE':'DEMO FALLBACK';
       if (state) state.textContent = 'API OFFLINE';
+      const checkLine=$('#database-check-inline');if(checkLine&&isLive){checkLine.hidden=false;checkLine.textContent='LIVE database status unavailable. No demo data is substituted.';checkLine.classList.add('database-error');checkLine.setAttribute('role','alert');}
     }
   }
   $('#refresh-demo')?.addEventListener('click',()=>refresh().then(()=>notify('Dashboard refreshed from local API.')));
