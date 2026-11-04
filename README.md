@@ -25,6 +25,10 @@ Use PHP and MariaDB already included with XAMPP. Keep the server bound to loopba
 
    Open `http://127.0.0.1:8000`. `data/mode.json` selects `DEMO` or `LIVE`; absent or invalid content falls back to DEMO. The Settings page switches modes and shows the active DB and flagged-row count. Site and phase settings live inside each selected database.
 
+### Dashboard batch shortcuts
+
+From the project folder, double-click `Launch Dashboard.bat` to start the local dashboard, `Restart Dashboard.bat` to stop and start it again, or `Stop Dashboard.bat` to stop it. These use the project-local server controls; keep the server bound to `127.0.0.1`.
+
 ## Backups and data safety
 
 `& $php tools/backup_db.php --profile=live` uses the XAMPP `mysqldump.exe` at `C:\xampp\mysql\bin\mysqldump.exe` and writes a unique SQL dump under `backups/<timestamp>/`; it never overwrites an existing backup. **Backup live data** before field use or maintenance. Clearing demo rows in Settings requires typing `CLEAR` and creates a DEMO backup first; it is disabled in LIVE. Do not use LIVE for tests.
@@ -41,6 +45,7 @@ $php = 'C:\xampp\php\php.exe'
 & $php tests/polygon_validation_test.php
 & $php tests/research_summary_test.php
 & $php tests/mode_safety_test.php
+& $php tests/clear_demo_scratch_test.php
 & $php tests/live_schema_scratch_test.php
 & $php tests/migration_scratch_test.php
 & $php tests/api_smoke.php http://127.0.0.1:8000
@@ -74,3 +79,24 @@ Record a GPX track with a phone GPS app while walking the intended corridor, exp
 ## Local API and integration boundary
 
 Bridge routes require `X-Bridge-Token` for the active database profile. Operator and settings routes require loopback when `local_only` is true (default); no accounts, sessions, or CSRF protection are implemented. A valid uplink envelope separates `uplink` fields from `reception` metadata. Base ID is written by the receiver into reception logging, never inserted into the uplink. No LoRa packet size, binary format, or USB serial framing is defined here.
+
+### API endpoints
+
+The routes below return JSON except the CSV export routes. Bridge routes require `X-Bridge-Token` matching the active profile token. The bridge sends the logical JSON contract only; USB serial framing and LoRa binary encoding remain unspecified.
+
+- `GET /api/status`
+- `GET /api/hikers`, `GET /api/hikers/{node_id}/latest`, `GET /api/positions/latest`
+- `GET /api/events`, `GET /api/logs/packets` (time range, hiker, type, severity, path, classification, validation, delivery, and demo filters; limit 1–200 and offset)
+- `GET /api/safe-zone`, `PUT /api/safe-zone`
+- `POST /api/commands/storm-turn-back`
+- `POST /api/events/{id}/resolve`
+- `POST /api/bridge/ingest`, `POST /api/bridge/status`
+- `GET /api/commands/pending`, `POST /api/commands/{id}/status`
+- `GET /api/research/summary`
+- `GET /api/export.csv?type=packets`, `GET /api/export.csv?type=events`
+
+### Bridge fields, reception paths, and timing
+
+The earlier README describes the logical uplink as `node_id`, `sequence_number`, coordinates, and optional GPS, battery, flags, and reception metadata. A direct reception and a Checkpoint relay reception attach to one logical packet; duplicate `(node_id, sequence_number)` packets are marked while reception records are retained. Valid classified positions queue a targeted acknowledgement or off-trail alert record; the dashboard does not transmit it. These are application records, not a wire format.
+
+The earlier README does not specify numeric receive windows or command timing thresholds. No 2-second or 3-second pass/fail timing is claimed here; the API exposes stored command timestamps and elapsed durations where available, without judging them.
