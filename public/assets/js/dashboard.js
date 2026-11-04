@@ -3,6 +3,7 @@
   const $$ = (s) => [...document.querySelectorAll(s)];
   const toast = $('#toast');
   let toastTimer;
+  let currentMapArgs=null;
   const notify = (message) => { toast.textContent = message; toast.classList.add('visible'); clearTimeout(toastTimer); toastTimer=setTimeout(()=>toast.classList.remove('visible'),3500); };
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const api = async (path, options={}) => { const r=await fetch(`api/${path}`,{cache:'no-store',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}}); const data=await r.json(); if(!r.ok) throw new Error(data.error||`Request failed (${r.status})`); return data; };
@@ -14,11 +15,13 @@
   const packetReceptionHtml = p => `<tr><td>${esc(localTime(p.received_at))}</td><td>${esc(p.node_id)} / ${esc(p.sequence_number)} ${rowBadge(p)}</td><td>${esc(p.received_by_node||'—')}</td><td>${p.relay_hop_delay_ms==null?'—':`${esc(p.relay_hop_delay_ms)} ms`}</td><td>${esc(p.route_type||'—')}</td><td>${Number(p.is_duplicate)===1?'Yes':'No'}</td></tr>`;
   function drawZone(zone,hikers,nodes=[],refs=[],site=null) {
     const svg=$('.trail-map'); if(!svg)return;
+    currentMapArgs=[zone,hikers,nodes,refs,site];
     const polygon=svg.querySelector('#api-zone'), markerLayer=svg.querySelector('#api-markers'), referenceLayer=svg.querySelector('#api-reference-points'), grid=svg.querySelector('#map-grid'), north=svg.querySelector('#map-north-scale');
     const vertices=Array.isArray(zone?.vertices)?zone.vertices:[];
     const hasCoordinates=p=>p?.latitude!==null&&p?.latitude!==undefined&&p?.longitude!==null&&p?.longitude!==undefined&&p?.latitude!==''&&p?.longitude!==''&&Number.isFinite(Number(p.latitude))&&Number.isFinite(Number(p.longitude));
     const valid=[...vertices,...hikers,...nodes,...refs,...(site?.center?[site.center]:[])].filter(hasCoordinates);
-    svg.setAttribute('viewBox','0 0 800 470');
+    const viewWidth=800,viewHeight=470;svg.setAttribute('viewBox',`0 0 ${viewWidth} ${viewHeight}`);
+    const rect=svg.getBoundingClientRect?.()||{width:viewWidth,height:viewHeight},cssScale=Math.min((rect.width||viewWidth)/viewWidth,(rect.height||viewHeight)/viewHeight)||1;svg.style?.setProperty('--svg-css-scale',String(cssScale));
     if(!valid.length){polygon.setAttribute('points','');markerLayer.innerHTML='';referenceLayer.innerHTML='';grid.innerHTML='';north.innerHTML='';const label=$('#map-scale-label');if(label)label.textContent='Local metric view · no positioned records';return;}
     const baseCamp=nodes.find(n=>n.node_type==='BASE_CAMP'&&hasCoordinates(n)),origin=(baseCamp&&hasCoordinates(baseCamp)?baseCamp:null)||(hasCoordinates(site?.center)?site.center:null)||(hasCoordinates(vertices[0])?vertices[0]:valid[0]),lat0=Number(origin.latitude),lon0=Number(origin.longitude),cos=Math.cos(lat0*Math.PI/180);
     const project=p=>({x:(Number(p.longitude)-lon0)*cos*111320,y:(Number(p.latitude)-lat0)*110540});
@@ -36,8 +39,9 @@
     const step=niceStep(Math.max(width,height)/6);let gridMarkup='';
     for(let gx=Math.ceil(viewMinX/step)*step;gx<=viewMinX+width;gx+=step){const px=x(gx);gridMarkup+=`<line x1="${px}" y1="${plot.top}" x2="${px}" y2="${plot.bottom}" vector-effect="non-scaling-stroke"/><text x="${px+3}" y="${plot.bottom-5}">${Math.round(gx)} m</text>`;}
     for(let gy=Math.ceil(viewMinY/step)*step;gy<=viewMinY+height;gy+=step){const py=y(gy);gridMarkup+=`<line x1="${plot.left}" y1="${py}" x2="${plot.right}" y2="${py}" vector-effect="non-scaling-stroke"/><text x="${plot.left+4}" y="${py-3}">${Math.round(gy)} m</text>`;}grid.innerHTML=gridMarkup;
-    const wrapLabel=value=>{const words=String(value).split(/\s+/);const lines=[];let line='';for(const word of words){if(line&&`${line} ${word}`.length>30){lines.push(line);line=word;}else line=line?`${line} ${word}`:word;}if(line)lines.push(line);return lines;};
-    const marker=(p,label,kind,detail='')=>{const q=project(p),px=x(q.x),py=y(q.y),lines=wrapLabel(label),anchor=px>560?'end':'start',tx=anchor==='end'?-12:12;const lineMarkup=lines.map((line,i)=>`<tspan x="${tx}" dy="${i===0?0:13}">${esc(line)}</tspan>`).join('');return `<g class="local-marker ${kind}" transform="translate(${px} ${py})"><circle r="7" vector-effect="non-scaling-stroke"/><text x="${tx}" y="${lines.length>1?-5:4}" text-anchor="${anchor}">${lineMarkup}</text><title>${esc(label)}${detail?` · ${esc(detail)}`:''}</title></g>`;};
+    const canvas=typeof document!=='undefined'?document.createElement('canvas'):null,measureContext=canvas?.getContext?.('2d')||null;
+    const measureLabel=(value,fontPx)=>{if(!measureContext)return Array.from(value).length*fontPx*.72+3;const family=typeof getComputedStyle==='function'?getComputedStyle(svg).fontFamily:'sans-serif';measureContext.font=`700 ${fontPx}px ${family}`;return measureContext.measureText(value).width+3;};
+    const marker=(p,label,kind,detail='')=>{const q=project(p),px=x(q.x),py=y(q.y),layout=TrailwatchMapLabels.layout(label,{x:px,y:py,width:viewWidth,height:viewHeight,scale:cssScale,fontPx:11,measureText:measureLabel});return `<g class="local-marker ${kind}" transform="translate(${px} ${py})"><circle r="7" vector-effect="non-scaling-stroke"/><text x="${layout.textX}" y="${layout.baseline}" text-anchor="${layout.anchor}" style="font-size:${layout.fontSize}px">${esc(layout.display)}</text><title>${esc(label)}${detail?` · ${esc(detail)}`:''}</title></g>`;};
     markerLayer.innerHTML=hikers.filter(h=>Number(h.is_enabled)!==0&&hasCoordinates(h)).map(h=>{const age=timeAgo(h.seconds_since_report),when=h.received_at?`${h.received_at} · ${age}`:'No report';const type=h.link_state==='LINK_LOST'?'lost-marker':h.live_state==='OFF_TRAIL'?'outside-marker':'inside-marker';return marker(h,h.node_id,type,h.link_state==='LINK_LOST'?`Last report ${when} · heard by ${h.last_heard_by||'unknown node'}`:h.live_state);}).join('')+nodes.filter(n=>Number(n.is_enabled)!==0&&hasCoordinates(n)).map(n=>marker(n,`${n.display_name}${n.is_verified?'':' · UNSURVEYED'}`,n.node_type==='BASE_CAMP'?'base-marker':'checkpoint-marker',n.is_verified?'':'UNSURVEYED')).join('');
     const unplaced=nodes.filter(n=>Number(n.is_enabled)!==0&&!hasCoordinates(n)).map(n=>`${n.display_name} · position unset`);if(unplaced.length)markerLayer.innerHTML+=`<text class="map-unplaced" x="48" y="76">${esc(unplaced.join(' · '))}</text>`;
     referenceLayer.innerHTML=refs.filter(r=>Number(r.is_enabled)!==0&&hasCoordinates(r)).map(r=>marker(r,`${r.label}${r.unsurveyed?' · UNSURVEYED':''}${Number(r.is_demo)?' (DEMO)':''}`,`reference-${String(r.point_type).toLowerCase()}`)).join('');
@@ -85,5 +89,6 @@
   $('#cancel-storm-button')?.addEventListener('click',async()=>{const node=prompt('Enter Hiker Node ID to cancel, or type ALL:');if(!node)return;const payload=node.toUpperCase()==='ALL'?{all:true}:{node_id:node.trim()};if(!confirm(`Cancel active storm turn-back campaign(s) for ${node.toUpperCase()}?`))return;try{const r=await api('commands/storm-turn-back/cancel',{method:'POST',body:JSON.stringify(payload)});notify(`Cancelled ${r.cancelled_count} campaign(s).`);}catch(e){notify(`Could not cancel campaign: ${e.message}`);}});
   document.addEventListener('click',async e=>{const b=e.target.closest('.resolve-event');if(!b)return;if(!confirm('Acknowledge this dashboard event? The original event record will be retained.'))return;try{await api(`events/${b.dataset.eventId}/resolve`,{method:'POST',body:JSON.stringify({resolved_by:'local-operator'})});await refresh();notify('Event acknowledged.');}catch(err){notify(`Could not acknowledge: ${err.message}`);}});
   async function initSitePicker(){const sel=$('#site-select');if(!sel)return;try{const data=await api('sites');sel.innerHTML=(data.sites||[]).map(s=>`<option value="${esc(s.id)}" ${s.id===data.selected_site?'selected':''}>${esc(s.display_name)}${s.is_rehearsal?' · UNSCORED REHEARSAL':''}</option>`).join('');sel.addEventListener('change',async()=>{try{await api('settings/site',{method:'POST',body:JSON.stringify({site_id:sel.value})});location.reload();}catch(e){notify(e.message);}});}catch(e){notify(`Site settings unavailable: ${e.message}`);}}
+  window.addEventListener('resize',()=>{if(currentMapArgs)drawZone(...currentMapArgs);});
   initSitePicker();refresh(); setInterval(refresh,5000);
 })();

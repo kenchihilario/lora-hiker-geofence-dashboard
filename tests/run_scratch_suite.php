@@ -17,7 +17,7 @@ try{
   $phpTests=['geofence_test.php','polygon_validation_test.php','research_summary_test.php','mode_safety_test.php','live_check_test.php','registry_service_test.php','clear_demo_scratch_test.php','live_schema_scratch_test.php','migration_scratch_test.php'];
   foreach($phpTests as $test){$status=suite_run([PHP_BINARY,$root.'/tests/'.$test],$root,$env);if($status!==0)$failed[]=$test;}
   $token=$config['bridge_tokens']['demo'];$status=suite_run([PHP_BINARY,$root.'/tests/api_smoke.php',$baseUrl,$token],$root,$env);if($status!==0)$failed[]='api_smoke.php';
-  foreach(['gpx_corridor_test.js','dashboard_packet_log_contract_test.js','live_empty_dashboard_test.js','offline_static_test.js'] as $test){$status=suite_run(['node',$root.'/tests/'.$test],$root,$env);if($status!==0)$failed[]=$test;}
+  foreach(['gpx_corridor_test.js','dashboard_map_labels_test.js','dashboard_packet_log_contract_test.js','live_empty_dashboard_test.js','offline_static_test.js'] as $test){$status=suite_run(['node',$root.'/tests/'.$test],$root,$env);if($status!==0)$failed[]=$test;}
   $pshell=getenv('SystemRoot').'\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';$status=suite_run([$pshell,'-NoProfile','-ExecutionPolicy','Bypass','-File',$root.'/tests/site_safe_zone_smoke.ps1','-BaseUrl',$baseUrl.'/api','-Database',$name],$root,$env);if($status!==0)$failed[]='site_safe_zone_smoke.ps1';
   // Give the integration harness an isolated LIVE mode file; its LIVE DB profile is still scratch-only.
   file_put_contents($modePath,json_encode(['mode'=>'LIVE']));$liveEnv=$env;$liveEnv['TRAILWATCH_TEST_MODE_FILE']=$modePath;
