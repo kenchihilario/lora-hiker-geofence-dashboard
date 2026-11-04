@@ -38,21 +38,8 @@ try {
  if($path==='/settings/clear-demo'&&$method==='POST'){
    $v=body();if(($v['confirmation']??'')!=='CLEAR')respond(['error'=>'type CLEAR to confirm'],400);
    $cmd=[PHP_BINARY,__DIR__.'/../../tools/backup_db.php','--profile=demo'];$pipes=[];$proc=proc_open($cmd,[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,dirname(__DIR__,2));if(!is_resource($proc))throw new RuntimeException('Could not start the required demo database backup');fclose($pipes[0]);$out=stream_get_contents($pipes[1]);fclose($pipes[1]);$err=stream_get_contents($pipes[2]);fclose($pipes[2]);if(proc_close($proc)!==0)throw new RuntimeException('Required demo backup failed; no rows were cleared');
-   $pdo->beginTransaction();try{
-     $pdo->exec("DELETE e FROM system_events e JOIN uplink_packets p ON p.id=CAST(JSON_UNQUOTE(JSON_EXTRACT(e.metadata_json,'$.packet_id')) AS UNSIGNED) WHERE p.is_demo=1 OR p.is_rehearsal=1 OR p.test_mode=1");
-     $pdo->exec("DELETE c FROM downlink_commands c JOIN uplink_packets p ON p.hiker_node_id=c.hiker_node_id AND p.site_id=c.site_id AND p.sequence_number=c.sequence_number WHERE p.is_demo=1 OR p.is_rehearsal=1 OR p.test_mode=1");
-     $pdo->exec('DELETE FROM packet_receptions WHERE is_demo=1 OR is_rehearsal=1 OR test_mode=1');
-     $pdo->exec('DELETE FROM uplink_packets WHERE is_demo=1 OR is_rehearsal=1 OR test_mode=1');
-     $pdo->exec('DELETE FROM downlink_commands WHERE is_demo=1 OR is_rehearsal=1 OR test_mode=1');
-     $pdo->exec('DELETE FROM system_events WHERE is_demo=1 OR is_rehearsal=1 OR test_mode=1');
-     $pdo->exec('DELETE FROM storm_turnback_campaigns WHERE is_demo=1 OR is_rehearsal=1 OR test_mode=1');
-     $pdo->exec('DELETE FROM operator_actions WHERE is_demo=1 OR is_rehearsal=1 OR test_mode=1');
-     $pdo->exec('DELETE FROM safe_zones WHERE is_demo=1 OR is_rehearsal=1');
-     $pdo->exec('DELETE FROM trail_reference_points WHERE is_demo=1');
-     $pdo->exec('DELETE FROM alerts');$pdo->exec('DELETE FROM positions');$pdo->exec("INSERT INTO mode_switch_audit(actor,from_mode,to_mode,from_database,to_database) VALUES('local operator','DEMO','DEMO',DATABASE(),DATABASE())");
-     $pdo->commit();
-   }catch(Throwable $e){$pdo->rollBack();throw $e;}
-   respond(['ok'=>true,'backup'=>trim($out)]);
+   $result=clear_demo_data($pdo);
+   respond(['ok'=>true,'backup'=>trim($out)]+$result);
  }
  if($method==='GET'&&$path==='/sites'){$sites=site_config();respond(['sites'=>array_values($sites),'selected_site'=>selected_site($pdo)]);}
  if($method==='POST'&&$path==='/settings/site'){$v=body();$id=(string)($v['site_id']??'');if(!isset(site_config()[$id]))throw new InvalidArgumentException('unknown site_id');if(!site_allowed_in_mode(active_mode(),site_config()[$id]))respond(['error'=>'LIVE mode cannot select a demo or rehearsal site'],409);$q=$pdo->prepare("INSERT INTO app_settings(setting_key,setting_value) VALUES('selected_site',?) ON DUPLICATE KEY UPDATE setting_value=VALUES(setting_value)");$q->execute([$id]);respond(['selected_site'=>$id,'site'=>site_config()[$id]]);}

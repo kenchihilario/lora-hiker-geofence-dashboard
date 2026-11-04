@@ -51,10 +51,12 @@
       drawZone(z.safe_zone, hikers, z.network_nodes || [], z.reference_points || [],z.site);
       renderConnections(st);
       const demo = st.active_mode==='DEMO';
+      const visibleFlags=TrailwatchSourceFlags.labels([...hikers,...(ev.events||[]),...(packetLog.packets||[])]);
+      if(Number(st.demo_row_count)>0&&!visibleFlags.length)visibleFlags.push('FLAGGED DATA');
       const age = $('#data-age'), mode = $('#data-mode-tag'), state = $('#data-state'), errorBox = $('#api-error');
-      const label=demo?'DEMO / SIMULATION MODE':'LIVE DATABASE';if(state)state.textContent=demo?'DEMO DATA':'LIVE DATABASE';if(mode)mode.textContent=label;
-      const top=$('#top-mode-indicator'),banner=$('#main-mode-banner'),detail=$('#mode-banner-detail'),box=$('#demo-banner'),title=$('#dashboard-title');if(top){top.textContent=demo?'DEMO / SIMULATION':'LIVE';top.className=`mode-indicator ${demo?'mode-demo':'mode-live'}`;}if(banner)banner.textContent=label;if(detail)detail.textContent=demo?'Simulation records only. No radio delivery or real hiker status is implied.':'Separate live database. Demo, rehearsal, and test packets are rejected.';if(box)box.className=`demo-banner ${demo?'mode-demo':'mode-live'}`;if(title)title.textContent=demo?'Demo / simulation overview':'Live monitoring';document.title=`${st.active_mode} · Trailwatch · Operations`;
-      const errorInLive=st.live_demo_count_error;if(errorInLive&&$('#database-check-inline'))$('#database-check-inline').textContent=`ERROR: ${st.demo_row_count} demo-marked rows in LIVE database`;
+      const label=(demo?'DEMO / SIMULATION MODE':'LIVE DATABASE')+(visibleFlags.length?` · ${visibleFlags.join(' / ')} DATA`:'' );if(state)state.textContent=demo?'DEMO DATA':'LIVE DATABASE';if(mode)mode.textContent=label;
+      const top=$('#top-mode-indicator'),banner=$('#main-mode-banner'),detail=$('#mode-banner-detail'),box=$('#demo-banner'),title=$('#dashboard-title');if(top){top.textContent=demo?'DEMO / SIMULATION':'LIVE';top.className=`mode-indicator ${demo?'mode-demo':'mode-live'}`;}if(banner)banner.textContent=label;if(detail)detail.textContent=demo?'Simulation records only. No radio delivery or real hiker status is implied.':(visibleFlags.length?'Flagged records are present in the live database. Review the red database check below.':'Separate live database. Demo, rehearsal, and test packets are rejected.');if(box)box.className=`demo-banner ${demo?'mode-demo':'mode-live'}`;if(title)title.textContent=demo?'Demo / simulation overview':'Live monitoring';document.title=`${st.active_mode} · Trailwatch · Operations`;
+      const checkLine=$('#database-check-inline'),errorInLive=!!st.live_demo_count_error;if(checkLine){checkLine.hidden=false;checkLine.textContent=`Active database: ${st.active_database} · records flagged demo/rehearsal/test: ${st.demo_row_count}`;checkLine.classList.toggle('api-error',errorInLive);checkLine.classList.toggle('database-error',errorInLive);checkLine.setAttribute('role',errorInLive?'alert':'status');}
       if (age) age.textContent = `Updated ${new Date().toLocaleTimeString()}`;
       if (errorBox) errorBox.hidden = true;
     } catch (err) {

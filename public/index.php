@@ -21,6 +21,7 @@ function e(string $value): string { return htmlspecialchars($value, ENT_QUOTES, 
   <meta name="theme-color" content="#101918">
   <title><?= e($dashboardMode) ?> · Trailwatch · Operations</title>
   <link rel="stylesheet" href="assets/css/dashboard.css?v=20261103-8">
+  <script src="assets/js/source-flags.js?v=20261104-1" defer></script>
   <script src="assets/js/dashboard.js?v=20261103-10" defer></script>
 </head>
 <body>
@@ -51,7 +52,7 @@ function e(string $value): string { return htmlspecialchars($value, ENT_QUOTES, 
       <div class="connection"><span class="connection-symbol connected">▤</span><div><small>LOCAL DATA</small><strong><i class="status-dot green"></i> Connecting <em id="data-state">API</em></strong></div></div>
     </section>
 
-    <div class="content-grid"><div class="api-error" id="api-error" hidden></div>
+    <div class="content-grid"><div class="api-error" id="api-error" hidden></div><div class="database-check-inline" id="database-check-inline" role="status">Checking active database…</div>
       <section class="panel map-panel" aria-labelledby="map-title">
         <div class="panel-heading"><div><div class="section-kicker">FIELD MAP</div><h2 id="map-title">Trail &amp; hiker locations</h2></div><span class="offline-pill"><span>▧</span> TILE-FREE LOCAL MAP</span></div>
         <div class="map-wrap">

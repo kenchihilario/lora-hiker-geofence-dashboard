@@ -18,6 +18,25 @@ function source_label(array $r,?string $mode=null): string { $mode=$mode??active
 function research_flags_eligible_sql(string $alias): string {
     return "$alias.is_demo=0 AND $alias.is_rehearsal=0 AND $alias.test_mode=0";
 }
+function clear_demo_data(PDO $pdo): array {
+    $legacyRowsKept=['positions'=>(int)$pdo->query('SELECT COUNT(*) FROM positions')->fetchColumn(),'alerts'=>(int)$pdo->query('SELECT COUNT(*) FROM alerts')->fetchColumn()];
+    $pdo->beginTransaction();
+    try{
+        $pdo->exec("DELETE e FROM system_events e JOIN uplink_packets p ON p.id=CAST(JSON_UNQUOTE(JSON_EXTRACT(e.metadata_json,'$.packet_id')) AS UNSIGNED) WHERE p.is_demo=1 OR p.is_rehearsal=1 OR p.test_mode=1");
+        $pdo->exec("DELETE c FROM downlink_commands c JOIN uplink_packets p ON p.hiker_node_id=c.hiker_node_id AND p.site_id=c.site_id AND p.sequence_number=c.sequence_number WHERE p.is_demo=1 OR p.is_rehearsal=1 OR p.test_mode=1");
+        $pdo->exec('DELETE FROM packet_receptions WHERE is_demo=1 OR is_rehearsal=1 OR test_mode=1');
+        $pdo->exec('DELETE FROM uplink_packets WHERE is_demo=1 OR is_rehearsal=1 OR test_mode=1');
+        $pdo->exec('DELETE FROM downlink_commands WHERE is_demo=1 OR is_rehearsal=1 OR test_mode=1');
+        $pdo->exec('DELETE FROM system_events WHERE is_demo=1 OR is_rehearsal=1 OR test_mode=1');
+        $pdo->exec('DELETE FROM storm_turnback_campaigns WHERE is_demo=1 OR is_rehearsal=1 OR test_mode=1');
+        $pdo->exec('DELETE FROM operator_actions WHERE is_demo=1 OR is_rehearsal=1 OR test_mode=1');
+        $pdo->exec('DELETE FROM safe_zones WHERE is_demo=1 OR is_rehearsal=1');
+        $pdo->exec('DELETE FROM trail_reference_points WHERE is_demo=1');
+        $pdo->exec("INSERT INTO mode_switch_audit(actor,from_mode,to_mode,from_database,to_database) VALUES('local operator','DEMO','DEMO',DATABASE(),DATABASE())");
+        $pdo->commit();
+    }catch(Throwable $e){if($pdo->inTransaction())$pdo->rollBack();throw $e;}
+    return ['legacy_rows_kept'=>array_sum($legacyRowsKept),'legacy_rows_kept_detail'=>$legacyRowsKept];
+}
 function site_config(): array { return require __DIR__ . '/../../config/sites.php'; }
 function selected_site(PDO $pdo): string {
     $q=$pdo->prepare("SELECT setting_value FROM app_settings WHERE setting_key='selected_site'");$q->execute();$site=(string)($q->fetchColumn()?:'pup');
