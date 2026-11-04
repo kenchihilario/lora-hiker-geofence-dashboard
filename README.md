@@ -1,98 +1,76 @@
-# LoRa Hiker Geofence Dashboard
+# Trailwatch Dashboard
 
-Local PHP/MariaDB dashboard with a **Demo / Simulation Mode** overview. The dashboard reads API-backed records and clearly marks demo data; it does not implement radio transport or parse serial frames.
+Offline PHP 8 and MariaDB dashboard with a browser JavaScript/SVG map. DEMO / SIMULATION and LIVE use separate MariaDB databases. The app does not implement LoRa transmission or USB serial framing; firmware-owned packet sizes and serial details remain unspecified.
 
-## Setup
+## Windows setup and run
 
-Requires PHP 8.0+ (PHP 8.2 is the proposal target) and MariaDB 10.4+.
+Use PHP and MariaDB already included with XAMPP. Keep the server bound to loopback; the operator/settings guard defaults ON and the PHP development server must never be exposed to a LAN or public interface.
 
-1. Create the local database and tables, including clearly marked synthetic safe-zone sample data:
+1. Copy `config.example.php` to `config.php`. The DEMO profile should point to the disposable `hiker_dashboard_test_codex` database. LIVE points to `hiker_dashboard_live`. Set independent private bridge tokens in `bridge_tokens.demo` and `bridge_tokens.live`; bridge callers send the active profile token in `X-Bridge-Token`. Keep credentials/tokens local and out of git/output.
+2. In PowerShell, use the bundled XAMPP PHP executable and initialize the profiles you intend to use. The setup tool imports `sql/schema.sql`; DEMO also imports `sql/demo_seed.sql`. LIVE imports schema only:
 
-   ```bash
-   mysql -u root < sql/schema.sql
+   ```powershell
+   $php = 'C:\xampp\php\php.exe'
+   & $php tools/setup_db.php --profile=demo
+   & $php tools/setup_db.php --profile=live
    ```
 
-2. Copy `config.example.php` to `config.php`, set the MariaDB credentials, and set a private `bridge_token` for local bridge endpoints. `config.php` is git-ignored.
+   The schema file has no fixed database name. The setup tool requires the name to match the chosen config profile. Run `& $php tools/migrate_db.php --profile=demo` to apply or verify the ordered migration ledger; it is safe to rerun. LIVE schema migration requires the explicit `--allow-live-schema` switch and is never part of tests.
+3. Start the local app from the project folder:
 
-3. Start the local server (router enables `/api/...` paths):
-
-   ```bash
-   php -S 127.0.0.1:8000 -t public public/router.php
+   ```powershell
+   $php = 'C:\xampp\php\php.exe'
+   & $php -S 127.0.0.1:8000 -t public public/router.php
    ```
 
-4. Open http://127.0.0.1:8000. The dashboard reads local API data and keeps clearly marked demo records separate from hardware transport. No serial or LoRa framing is implemented.
+   Open `http://127.0.0.1:8000`. `data/mode.json` selects `DEMO` or `LIVE`; absent or invalid content falls back to DEMO. The Settings page switches modes and shows the active DB and flagged-row count. Site and phase settings live inside each selected database.
 
-## API endpoints
+## Backups and data safety
 
-All responses are JSON. Bridge endpoints require `X-Bridge-Token` matching `bridge_token` in local config. The bridge submits the agreed logical JSON object only; actual USB serial framing and LoRa binary encoding remain unspecified.
+`& $php tools/backup_db.php --profile=live` uses the XAMPP `mysqldump.exe` at `C:\xampp\mysql\bin\mysqldump.exe` and writes a unique SQL dump under `backups/<timestamp>/`; it never overwrites an existing backup. **Backup live data** before field use or maintenance. Clearing demo rows in Settings requires typing `CLEAR` and creates a DEMO backup first; it is disabled in LIVE. Do not use LIVE for tests.
 
-- `GET /api/status`
-- `GET /api/settings/phase-mode`, `POST /api/settings/phase-mode` with `phase_mode` set to `PHASE1`, `PHASE2`, or `PHASE3`
-- `GET /api/hikers`, `GET /api/hikers/{node_id}/latest`, `GET /api/positions/latest`
-- `GET /api/events`, `GET /api/logs/packets` (support time range, hiker, type, severity, path, classification, validation, delivery, and demo filters; limit 1–200 and offset)
-- `GET /api/safe-zone` (also returns configured network-node and trail reference markers), `PUT /api/safe-zone` with `{ "site_id": "pup", "name": "...", "vertices": [{"latitude": 14.8, "longitude": 121.0}] }`
-- `POST /api/commands/storm-turn-back` with `{ "node_id": "H1", "base_id": "BASE" }` or `{ "all": true, "base_id": "BASE" }` arms repeating storm campaigns; `GET /api/commands/storm-turn-back/active` lists them and `POST /api/commands/storm-turn-back/cancel` with `{ "node_id": "H1" }` or `{ "all": true }` cancels them
-- `POST /api/events/{id}/resolve` records operator resolution without deleting or rewriting the original event
-- `POST /api/bridge/ingest`, `POST /api/bridge/status`
-- `GET /api/commands/pending`, `POST /api/commands/{id}/status`
-- `GET /api/research/summary` (descriptive counts only)
+LIVE rejects incoming records marked demo, rehearsal, or `test_mode`; rejection details go to the local ignored `data/rejections.log`. The simulator is DEMO-only. LIVE starts without seeded hikers or a safe zone. Until a polygon is configured, positions stay UNCLASSIFIED and do not raise OFF TRAIL events.
 
-Bridge ingest separates the logical uplink fields from receiver/log metadata. The `uplink` object contains only `node_id`, `sequence_number`, `latitude`, `longitude`, `gps_accuracy_m`, `satellite_count`, `battery_level`, and the five flags (`link_lost`, `low_battery`, `emergency`, `turn_back_received`, `test_mode`). The sibling `reception` object carries the logging Base Camp `base_id`, direct/relay path, and for a relay the `checkpoint_id` plus `checkpoint_rssi_dbm`. Thus `base_id` is not part of the uplink. Pending downlinks expose `node_id`, `base_id`, `sequence_number`, logical `type`, `route_type`, and `route_via_node_id`; a direct reception selects the direct route, while a checkpoint-only reception selects that Checkpoint as the relay. Direct/checkpoint copies share one uplink row and retain separate reception rows, with later copies marked `is_duplicate`. Each unique uplink queues at most one selected reply. Command logs store creation, first bridge fetch, and reported-sent timestamps and expose elapsed milliseconds between them without applying a timing verdict. This is an application-level JSON contract only; it defines no LoRa packet size or USB serial framing.
+## Tests
 
-Storm turn-back is armed as a campaign and queues a storm reply in later uplink response slots until the received flag arrives or the operator cancels. The response priority is centralized in `UPLINK_DOWNLINK_PRIORITY`. Phase 2 disables and closes active campaigns and prevents queued storm replies from being fetched.
+Tests that use MariaDB require the active DEMO profile to point exactly to `hiker_dashboard_test_codex`. They fail closed in LIVE mode. Scratch tests create and drop only a randomly named `hiker_dashboard_scratch_*` database. From PowerShell:
 
-Safe-zone edge behavior is explicitly defined: points on an edge count as inside. Updating a zone creates a new version and deactivates the prior version. Authentication for operator-facing actions is not included in this local prototype; bridge routes use the configured shared token.
-
-## Validation
-
-Run the independent ray-casting checks:
-
-```bash
-php tests/geofence_test.php
-```
-
-For endpoint smoke checks, use a disposable MariaDB database whose configured name contains a standalone `_test` token, with the server connected to that same test database:
-
-```bash
-php tests/api_smoke.php http://127.0.0.1:8000 YOUR_BRIDGE_TOKEN
-```
-
-The endpoint smoke test verifies bridge field validation, direct/relay routing and de-duplication, duplicate reception marking, one reply per uplink, command creation/fetch/sent timing fields, repeating/cancelled storm campaigns, Phase 2 suppression, the SOS-outside-zone alarm, and packet-log output. It writes demo-marked rows and refuses to run unless both its local config and the API server report a dedicated test database. Do not run it against research data. To verify packet, alert/event, and command summary exclusion, run `php tests/research_summary_test.php` on the same disposable test database.
-
-## Existing backend
-
-`public/ingest.php`, `src/report.php`, and `tools/mock_hike.php` are retained for the previous prototype workflow. They use the legacy `positions`/`alerts` tables from the earlier schema and are separate from the new API schema. Hardware integration remains out of scope until the firmware team supplies serial and packet formats.
-## Offline site maps and safe zones
-
-The dashboard and safe-zone editor render an SVG on a plain background. They do not load Leaflet tiles, online map data, remote fonts, CDNs, or other map assets. The latitude/longitude database values remain the source coordinates; the display projects them to a local meter frame around the site center or polygon.
-
-Four test sites are configured in `config/sites.php`:
-
-- **PUP Sta. Mesa** has no confirmed center yet. Its center is intentionally `null`; enter a surveyed coordinate before using map clicks. The current SQL seed polygon is marked `DEMO ONLY` and is illustrative, not a surveyed PUP boundary.
-- **PUP Mountain Prep (Demo)** is a separate, empty mountain-preparation profile. It has no assumed PUP coordinates or safe zone. Select it and import the surveyed mountain GPX when available; its polygon history is separate from the other sites.
-- **Mt. Balagbag** uses the supplied peak coordinate `14.8243087, 121.1804131` (770 m). Base Camp and Checkpoint locations remain unset until confirmed.
-- **Mt. Mapalad (backup)** is present for the proposal’s backup trail, with no assumed coordinates or safe zone.
-
-Select a site from the dashboard, Settings, or Safe zone editor. Safe zones are versioned and active independently by site. In the editor, add coordinates in the table or use the local SVG to add/drag vertices; save creates a new version. GPX files are read locally in the browser and create a preview corridor using the selected half-width (5–50 m). The preview is not saved until the operator presses **Save as new version**. Self-intersecting polygons are rejected by both the editor and API.
-
-For an existing database, run these once in order:
-
-```bash
-mysql -u root hiker_dashboard < sql/migrations/002_local_map_references.sql
-mysql -u root hiker_dashboard < sql/migrations/003_site_aware_safe_zones.sql
-mysql -u root hiker_dashboard < sql/migrations/004_bridge_fields_research_rehearsal.sql
-mysql -u root hiker_dashboard < sql/migrations/005_downlink_routing_timing_storm_campaigns.sql
-```
-
-The fresh-install `sql/schema.sql` already includes the site-aware fields, command sender IDs, and demo/rehearsal flags. PUP Mountain Prep records are automatically marked `is_rehearsal`; the research summary excludes demo rows, rehearsal rows, the `test_mode` column, and `flags.test_mode=true`. Add only verified Base Camp, Checkpoint, junction, rest-stop, and other reference coordinates to `config/sites.php` or the `trail_reference_points` table (each table row has a `site_id`). Do not treat demo coordinates as surveyed trail data.
-
-Offline geometry checks:
-
-```bash
+```powershell
+$php = 'C:\xampp\php\php.exe'
+& $php tests/geofence_test.php
+& $php tests/polygon_validation_test.php
+& $php tests/research_summary_test.php
+& $php tests/mode_safety_test.php
+& $php tests/live_schema_scratch_test.php
+& $php tests/migration_scratch_test.php
+& $php tests/api_smoke.php http://127.0.0.1:8000
 node tests/gpx_corridor_test.js
-php tests/geofence_test.php
-php tests/polygon_validation_test.php
-php tests/research_summary_test.php
+node tests/dashboard_packet_log_contract_test.js
+node tests/offline_static_test.js
+.\tests\site_safe_zone_smoke.ps1 -BaseUrl http://127.0.0.1:8000/api -Database hiker_dashboard_test_codex
 ```
 
-The GPX corridor test covers straight, L-shaped, and closed-loop tracks. API site/polygon checks can be run with `tests/site_safe_zone_smoke.ps1` against the configured disposable local database.
+The endpoint smoke test writes clearly marked DEMO/TEST rows in the disposable DB and restores its previous active site, phase, and PUP polygon. Do not pass a LIVE bridge token or change the active mode while testing.
+
+## Simulator and CSV export
+
+The PHP simulator posts only the existing logical uplink and reception JSON contract to the local bridge ingest endpoint. It defines no byte sizes, framing, or hardware transport. Example:
+
+```powershell
+$php = 'C:\xampp\php\php.exe'
+& $php tools/simulate_hikers.php --scenario=normal_walk --base-url=http://127.0.0.1:8000/api
+& $php tools/simulate_hikers.php --scenario=relay_via_checkpoint --base-url=http://127.0.0.1:8000/api
+& $php tools/simulate_hikers.php --gpx=.\trail.gpx --speed=2 --base-url=http://127.0.0.1:8000/api
+```
+
+Scenarios are in `tools/scenarios/`: normal walk, drift off trail, hiker silent, duplicate reception, out-of-order sequence, SOS, turn-back received, and checkpoint relay. Every packet is marked DEMO. The dashboard exports packet and event CSV through `api/export.csv?type=packets` and `api/export.csv?type=events`. CSV includes a source label; GPS valid-fix is derived for display/export only using accuracy `<= 10 m` and at least `5` satellites, with null values invalid.
+
+## Sites and safe zones
+
+Only operator-provided coordinates are included: Balagbag peak (`14.8243087, 121.1804131`, 770 m), the user-provided Balagbag place pin (`14.8239931, 121.1795801`), and the PUP Oval pin (`14.598126, 121.0120373`). The pins are explicitly UNSURVEYED/UNVERIFIED. PUP's boundary remains DEMO. Mt. Mapalad and Base Camp/Checkpoint coordinates remain unset.
+
+Record a GPX track with a phone GPS app while walking the intended corridor, export the `.gpx` file, select the intended site in Settings or `/safe-zone`, choose the file locally, preview its corridor, and explicitly save it after checking the surveyed path. No file is uploaded to a map service. Points exactly on a safe-zone polygon edge count as INSIDE. A closed GPX loop whose end is within 0.5 m of its start is recognized, the repeated endpoint is removed, then the current code expands the ring radially from its vertex centroid by the selected half-width; other tracks use a local perpendicular-offset corridor. This is a preview rule, not survey validation.
+
+## Local API and integration boundary
+
+Bridge routes require `X-Bridge-Token` for the active database profile. Operator and settings routes require loopback when `local_only` is true (default); no accounts, sessions, or CSRF protection are implemented. A valid uplink envelope separates `uplink` fields from `reception` metadata. Base ID is written by the receiver into reception logging, never inserted into the uplink. No LoRa packet size, binary format, or USB serial framing is defined here.

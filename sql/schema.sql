@@ -1,6 +1,5 @@
--- Milestone 2 schema. MariaDB 10.4 compatible. Demo seed records are explicitly marked.
-CREATE DATABASE IF NOT EXISTS hiker_dashboard CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-USE hiker_dashboard;
+-- MariaDB 10.4 compatible schema. Select the configured database before importing.
+-- Synthetic hikers and zones are in sql/demo_seed.sql and are never part of this schema.
 
 CREATE TABLE IF NOT EXISTS hiker_nodes (
   id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -195,19 +194,6 @@ CREATE TABLE IF NOT EXISTS system_status (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
-INSERT IGNORE INTO hiker_nodes(node_id,display_name,connection_design) VALUES
- ('H1','Hiker Node 1','UNKNOWN'),('H2','Hiker Node 2','UNKNOWN');
-INSERT IGNORE INTO network_nodes(node_code,node_type,display_name) VALUES
- ('BASE','BASE_CAMP','Base Camp Node'),('CHK','CHECKPOINT','Checkpoint Node');
-INSERT IGNORE INTO system_status(component,state) VALUES ('BASE_CAMP','UNKNOWN'),('SERIAL_BRIDGE','UNKNOWN'),('DATABASE','ONLINE');
--- Explicitly synthetic coordinates for development only; replace with surveyed trail data.
-INSERT INTO safe_zones(name,version,site_id,is_demo,is_rehearsal,is_active,created_by)
- SELECT 'DEMO ONLY - Sample corridor',1,'pup',1,0,1,'demo-seed' WHERE NOT EXISTS(SELECT 1 FROM safe_zones WHERE site_id='pup');
-INSERT INTO safe_zone_vertices(safe_zone_id,vertex_order,latitude,longitude)
- SELECT z.id,v.ord,v.lat,v.lng FROM safe_zones z
- JOIN (SELECT 1 ord,14.8000 lat,121.0000 lng UNION ALL SELECT 2,14.8000,121.0006 UNION ALL SELECT 3,14.8060,121.0006 UNION ALL SELECT 4,14.8060,121.0000) v
- WHERE z.version=1 AND z.name='DEMO ONLY - Sample corridor'
- AND NOT EXISTS(SELECT 1 FROM safe_zone_vertices x WHERE x.safe_zone_id=z.id);
 -- Backward-compatible tables used by the earlier mock/ingest workflow.
 CREATE TABLE IF NOT EXISTS nodes (
   id VARCHAR(16) PRIMARY KEY,
@@ -232,4 +218,19 @@ CREATE TABLE IF NOT EXISTS alerts (
   downlink_sent TINYINT(1) NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
-INSERT IGNORE INTO nodes(id,role,label) VALUES ('H1','hiker','Hiker Node 1'),('H2','hiker','Hiker Node 2'),('BASE','base','Base Camp Node'),('CHK','checkpoint','Checkpoint Node');
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  migration VARCHAR(190) PRIMARY KEY,
+  checksum CHAR(64) NOT NULL,
+  applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+CREATE TABLE IF NOT EXISTS mode_switch_audit (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  actor VARCHAR(100) NOT NULL,
+  from_mode ENUM('DEMO','LIVE') NOT NULL,
+  to_mode ENUM('DEMO','LIVE') NOT NULL,
+  switched_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  from_database VARCHAR(128) NOT NULL,
+  to_database VARCHAR(128) NOT NULL,
+  KEY ix_mode_switch_time(switched_at)
+) ENGINE=InnoDB;

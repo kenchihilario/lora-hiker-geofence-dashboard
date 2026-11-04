@@ -3,6 +3,21 @@ require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../geofence.php';
 
 function json_value($value): ?string { return $value === null ? null : json_encode($value, JSON_THROW_ON_ERROR); }
+function packet_is_demo_or_test(array $data): bool {
+    $u=is_array($data['uplink']??null)?$data['uplink']:[];$f=is_array($u['flags']??null)?$u['flags']:[];
+    return !empty($data['is_demo'])||!empty($data['is_rehearsal'])||!empty($f['test_mode'])||!empty($data['test_mode']);
+}
+function should_reject_live_packet(string $mode,array $data): bool { return $mode==='LIVE'&&packet_is_demo_or_test($data); }
+function clear_demo_allowed(string $mode): bool { return $mode==='DEMO'; }
+function site_allowed_in_mode(string $mode,array $site): bool { return $mode!=='LIVE'||(empty($site['is_demo'])&&empty($site['is_rehearsal'])); }
+function demo_row_count(PDO $pdo): int {
+    $sum=0;$filters=['uplink_packets'=>'is_demo=1 OR is_rehearsal=1 OR test_mode=1','system_events'=>'is_demo=1 OR is_rehearsal=1 OR test_mode=1','downlink_commands'=>'is_demo=1 OR is_rehearsal=1 OR test_mode=1','packet_receptions'=>'is_demo=1 OR is_rehearsal=1 OR test_mode=1','safe_zones'=>'is_demo=1 OR is_rehearsal=1','storm_turnback_campaigns'=>'is_demo=1 OR is_rehearsal=1 OR test_mode=1','operator_actions'=>'is_demo=1 OR is_rehearsal=1 OR test_mode=1','trail_reference_points'=>'is_demo=1'];foreach($filters as $table=>$where)$sum+=(int)$pdo->query("SELECT COUNT(*) FROM $table WHERE $where")->fetchColumn();return $sum;
+}
+function gps_valid_fix($accuracy,$satellites): bool { return $accuracy!==null&&$satellites!==null&&is_numeric($accuracy)&&(float)$accuracy<=10&&(int)$satellites>=5; }
+function source_label(array $r,?string $mode=null): string { $mode=$mode??active_mode();return !empty($r['is_rehearsal'])?'REHEARSAL':(!empty($r['test_mode'])?'TEST':(!empty($r['is_demo'])||$mode==='DEMO'?'DEMO':'REAL')); }
+function research_flags_eligible_sql(string $alias): string {
+    return "$alias.is_demo=0 AND $alias.is_rehearsal=0 AND $alias.test_mode=0";
+}
 function site_config(): array { return require __DIR__ . '/../../config/sites.php'; }
 function selected_site(PDO $pdo): string {
     $q=$pdo->prepare("SELECT setting_value FROM app_settings WHERE setting_key='selected_site'");$q->execute();$site=(string)($q->fetchColumn()?:'pup');
@@ -77,13 +92,13 @@ function flag_bool($value,string $name): bool {
     throw new InvalidArgumentException("flags.$name must be boolean");
 }
 function ingest_packet(PDO $pdo,array $d): array {
-    $rootAllowed=['uplink','reception','is_demo'];if(array_diff(array_keys($d),$rootAllowed))throw new InvalidArgumentException('bridge envelope accepts only uplink, reception, and optional is_demo');
+    $rootAllowed=['uplink','reception','is_demo','is_rehearsal'];if(array_diff(array_keys($d),$rootAllowed))throw new InvalidArgumentException('bridge envelope accepts only uplink, reception, and optional is_demo / is_rehearsal');
     $u=$d['uplink']??null;$r=$d['reception']??null;if(!is_array($u)||!is_array($r))throw new InvalidArgumentException('uplink and reception objects are required');
     $uplinkAllowed=['node_id','sequence_number','latitude','longitude','gps_accuracy_m','satellite_count','battery_level','flags'];if(array_diff(array_keys($u),$uplinkAllowed))throw new InvalidArgumentException('uplink contains an unsupported field');
     foreach($uplinkAllowed as $key)if(!array_key_exists($key,$u))throw new InvalidArgumentException("uplink.$key is required");
     $receptionAllowed=['base_id','path_type','checkpoint_id','checkpoint_rssi_dbm','rssi_dbm','snr_db','relay_hop_delay_ms','received_at'];if(array_diff(array_keys($r),$receptionAllowed))throw new InvalidArgumentException('reception contains an unsupported field');
     foreach(['base_id','path_type'] as $key)if(!isset($r[$key]))throw new InvalidArgumentException("reception.$key is required");
-    if(isset($d['is_demo'])&&!is_bool($d['is_demo']))throw new InvalidArgumentException('is_demo must be boolean');
+    if(isset($d['is_demo'])&&!is_bool($d['is_demo']))throw new InvalidArgumentException('is_demo must be boolean');if(isset($d['is_rehearsal'])&&!is_bool($d['is_rehearsal']))throw new InvalidArgumentException('is_rehearsal must be boolean');
     $id=trim((string)$u['node_id']);$seq=$u['sequence_number'];if($id===''||strlen($id)>16||filter_var($seq,FILTER_VALIDATE_INT)===false||(int)$seq<0||(int)$seq>65535)throw new InvalidArgumentException('node_id and sequence_number (0–65535) are required');
     foreach(['latitude'=>$u['latitude'],'longitude'=>$u['longitude']] as $key=>$v)if(!is_numeric($v)||!is_finite((float)$v))throw new InvalidArgumentException("uplink.$key must be numeric");$lat=(float)$u['latitude'];$lng=(float)$u['longitude'];if(abs($lat)>90||abs($lng)>180)throw new InvalidArgumentException('coordinates out of range');
     $accuracy=$u['gps_accuracy_m'];$sats=$u['satellite_count'];$battery=$u['battery_level'];
@@ -91,7 +106,7 @@ function ingest_packet(PDO $pdo,array $d): array {
     if($sats!==null&&(filter_var($sats,FILTER_VALIDATE_INT)===false||(int)$sats<0||(int)$sats>255))throw new InvalidArgumentException('satellite_count must be 0–255 or null');
     if($battery!==null&&(filter_var($battery,FILTER_VALIDATE_INT)===false||(int)$battery<0||(int)$battery>100))throw new InvalidArgumentException('battery_level must be 0–100 or null');
     $rawFlags=$u['flags'];if(!is_array($rawFlags))throw new InvalidArgumentException('uplink.flags must be an object');$flagNames=['link_lost','low_battery','emergency','turn_back_received','test_mode'];if(array_diff(array_keys($rawFlags),$flagNames))throw new InvalidArgumentException('uplink.flags contains an unsupported flag');$flags=[];foreach($flagNames as $f)$flags[$f]=flag_bool($rawFlags[$f]??false,$f);$test=$flags['test_mode'];
-    $siteId=selected_site($pdo);$siteFlags=site_record_flags($siteId);$demo=(!empty($d['is_demo'])||$test||$siteFlags['is_demo'])?1:0;$rehearsal=$siteFlags['is_rehearsal'];
+    $siteId=selected_site($pdo);$siteFlags=site_record_flags($siteId);$demo=(active_mode()==='DEMO'||!empty($d['is_demo'])||$test||$siteFlags['is_demo'])?1:0;$rehearsal=(!empty($d['is_rehearsal'])||$siteFlags['is_rehearsal'])?1:0;
     $baseId=trim((string)$r['base_id']);if(!valid_node_code($pdo,$baseId,'BASE_CAMP'))throw new InvalidArgumentException('reception.base_id must identify an enabled Base Camp Node');
     $path=$r['path_type'];if(!in_array($path,['DIRECT','CHECKPOINT_RELAY'],true))throw new InvalidArgumentException('reception.path_type must be DIRECT or CHECKPOINT_RELAY');
     $checkpointId=null;$checkpointRssi=null;if($path==='CHECKPOINT_RELAY'){$checkpointId=trim((string)($r['checkpoint_id']??''));if(!valid_node_code($pdo,$checkpointId,'CHECKPOINT'))throw new InvalidArgumentException('checkpoint_id must identify an enabled Checkpoint Node');$checkpointRssi=$r['checkpoint_rssi_dbm']??null;if(filter_var($checkpointRssi,FILTER_VALIDATE_INT)===false||(int)$checkpointRssi< -200||(int)$checkpointRssi>100)throw new InvalidArgumentException('checkpoint_rssi_dbm must be -200–100');}elseif(isset($r['checkpoint_id'])||isset($r['checkpoint_rssi_dbm']))throw new InvalidArgumentException('direct reception cannot carry checkpoint relay fields');
@@ -123,13 +138,17 @@ function ingest_packet(PDO $pdo,array $d): array {
     }catch(Throwable $e){$pdo->rollBack();throw $e;}
 }
 function research_summary(PDO $pdo): array {
-    $eligible="is_demo=0 AND is_rehearsal=0 AND test_mode=0 AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(flags_json,'$.test_mode')),'false') NOT IN ('true','1')";
-    $q=$pdo->query("SELECT COUNT(*) packet_count,COALESCE(SUM(classification='INSIDE'),0) inside_count,COALESCE(SUM(classification='OUTSIDE'),0) outside_count FROM uplink_packets WHERE $eligible");$summary=$q->fetch();
-    $q=$pdo->query("SELECT COUNT(*) excluded_packet_count FROM uplink_packets WHERE NOT ($eligible)");$summary['excluded_packet_count']=(int)$q->fetchColumn();
-    $recordEligible='is_demo=0 AND is_rehearsal=0 AND test_mode=0';
-    $q=$pdo->query("SELECT COUNT(*) event_count,COALESCE(SUM(event_type='OFF_TRAIL'),0) alert_event_count FROM system_events WHERE $recordEligible");$eventCounts=$q->fetch();
-    $q=$pdo->query("SELECT COUNT(*) excluded_event_count,COALESCE(SUM(event_type='OFF_TRAIL'),0) excluded_alert_event_count FROM system_events WHERE NOT ($recordEligible)");$eventExcluded=$q->fetch();
-    $q=$pdo->query("SELECT COUNT(*) command_count,COALESCE(SUM(command_type='OFF_TRAIL_ALERT'),0) alert_command_count FROM downlink_commands WHERE $recordEligible");$commandCounts=$q->fetch();
-    $q=$pdo->query("SELECT COUNT(*) excluded_command_count,COALESCE(SUM(command_type='OFF_TRAIL_ALERT'),0) excluded_alert_command_count FROM downlink_commands WHERE NOT ($recordEligible)");$commandExcluded=$q->fetch();
+    $packetEligible=research_flags_eligible_sql('p')." AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(p.flags_json,'$.test_mode')),'false') NOT IN ('true','1')";
+    $packetEligibleBare="is_demo=0 AND is_rehearsal=0 AND test_mode=0 AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(flags_json,'$.test_mode')),'false') NOT IN ('true','1')";
+    $eventPacketEligible=str_replace('p.','ep.',$packetEligible);
+    $commandPacketEligible=str_replace('p.','cp.',$packetEligible);
+    $eventEligible=research_flags_eligible_sql('e')." AND (JSON_EXTRACT(e.metadata_json,'$.packet_id') IS NULL OR EXISTS (SELECT 1 FROM uplink_packets ep WHERE ep.id=CAST(JSON_UNQUOTE(JSON_EXTRACT(e.metadata_json,'$.packet_id')) AS UNSIGNED) AND $eventPacketEligible))";
+    $commandEligible=research_flags_eligible_sql('c')." AND NOT EXISTS (SELECT 1 FROM uplink_packets cp WHERE cp.hiker_node_id=c.hiker_node_id AND cp.site_id=c.site_id AND cp.sequence_number=c.sequence_number AND NOT ($commandPacketEligible))";
+    $q=$pdo->query("SELECT COUNT(*) packet_count,COALESCE(SUM(classification='INSIDE'),0) inside_count,COALESCE(SUM(classification='OUTSIDE'),0) outside_count FROM uplink_packets WHERE $packetEligibleBare");$summary=$q->fetch();
+    $q=$pdo->query("SELECT COUNT(*) excluded_packet_count FROM uplink_packets WHERE NOT ($packetEligibleBare)");$summary['excluded_packet_count']=(int)$q->fetchColumn();
+    $q=$pdo->query("SELECT COUNT(*) event_count,COALESCE(SUM(event_type='OFF_TRAIL'),0) alert_event_count FROM system_events e WHERE $eventEligible");$eventCounts=$q->fetch();
+    $q=$pdo->query("SELECT COUNT(*) excluded_event_count,COALESCE(SUM(event_type='OFF_TRAIL'),0) excluded_alert_event_count FROM system_events e WHERE NOT ($eventEligible)");$eventExcluded=$q->fetch();
+    $q=$pdo->query("SELECT COUNT(*) command_count,COALESCE(SUM(command_type='OFF_TRAIL_ALERT'),0) alert_command_count FROM downlink_commands c WHERE $commandEligible");$commandCounts=$q->fetch();
+    $q=$pdo->query("SELECT COUNT(*) excluded_command_count,COALESCE(SUM(command_type='OFF_TRAIL_ALERT'),0) excluded_alert_command_count FROM downlink_commands c WHERE NOT ($commandEligible)");$commandExcluded=$q->fetch();
     return array_merge($summary,array_map('intval',$eventCounts),array_map('intval',$eventExcluded),array_map('intval',$commandCounts),array_map('intval',$commandExcluded));
 }

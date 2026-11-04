@@ -4,6 +4,7 @@
 // H1 walks the corridor, then drifts off the safe zone. H2 stays on the trail.
 // "heard_by" switches from BASE to CHK partway, like moving out of base camp range.
 require_once __DIR__ . '/../src/report.php';
+if (active_mode() !== 'DEMO') { fwrite(STDERR,"Refused: legacy simulator is disabled in LIVE mode.\n"); exit(3); }
 
 $delay = (int)($argv[1] ?? 1);
 $steps = [];

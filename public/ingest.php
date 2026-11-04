@@ -4,6 +4,7 @@
 // POST fields: token, hiker_id, lat, lng, heard_by
 require_once __DIR__ . '/../src/report.php';
 header('Content-Type: application/json');
+if (active_mode() === 'LIVE') { http_response_code(403); echo json_encode(['error'=>'legacy ingest is disabled in LIVE mode']); exit; }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);

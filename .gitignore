@@ -4,3 +4,6 @@ config.php
 .vscode/
 
 .runtime/
+/data/mode.json
+/data/rejections.log
+/backups/

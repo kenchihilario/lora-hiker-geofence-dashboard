@@ -1,3 +1,4 @@
+require('./test-preflight.js');
 const assert = require('node:assert/strict');
 const { bufferTrack } = require('../public/assets/js/safe-zone-geometry.js');
 const p=(x,y)=>({latitude:14.8+y/110540,longitude:121+x/(Math.cos(14.8*Math.PI/180)*111320)});
