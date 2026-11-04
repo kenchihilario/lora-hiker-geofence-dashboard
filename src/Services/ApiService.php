@@ -158,13 +158,12 @@ function ingest_packet(PDO $pdo,array $d): array {
 }
 function research_summary(PDO $pdo): array {
     $packetEligible=research_flags_eligible_sql('p')." AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(p.flags_json,'$.test_mode')),'false') NOT IN ('true','1')";
-    $packetEligibleBare="is_demo=0 AND is_rehearsal=0 AND test_mode=0 AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(flags_json,'$.test_mode')),'false') NOT IN ('true','1')";
     $eventPacketEligible=str_replace('p.','ep.',$packetEligible);
     $commandPacketEligible=str_replace('p.','cp.',$packetEligible);
     $eventEligible=research_flags_eligible_sql('e')." AND (JSON_EXTRACT(e.metadata_json,'$.packet_id') IS NULL OR EXISTS (SELECT 1 FROM uplink_packets ep WHERE ep.id=CAST(JSON_UNQUOTE(JSON_EXTRACT(e.metadata_json,'$.packet_id')) AS UNSIGNED) AND $eventPacketEligible))";
     $commandEligible=research_flags_eligible_sql('c')." AND NOT EXISTS (SELECT 1 FROM uplink_packets cp WHERE cp.hiker_node_id=c.hiker_node_id AND cp.site_id=c.site_id AND cp.sequence_number=c.sequence_number AND NOT ($commandPacketEligible))";
-    $q=$pdo->query("SELECT COUNT(*) packet_count,COALESCE(SUM(classification='INSIDE'),0) inside_count,COALESCE(SUM(classification='OUTSIDE'),0) outside_count FROM uplink_packets WHERE $packetEligibleBare");$summary=$q->fetch();
-    $q=$pdo->query("SELECT COUNT(*) excluded_packet_count FROM uplink_packets WHERE NOT ($packetEligibleBare)");$summary['excluded_packet_count']=(int)$q->fetchColumn();
+    $q=$pdo->query("SELECT COUNT(*) packet_count,COALESCE(SUM(p.classification='INSIDE'),0) inside_count,COALESCE(SUM(p.classification='OUTSIDE'),0) outside_count FROM uplink_packets p WHERE $packetEligible");$summary=$q->fetch();
+    $q=$pdo->query("SELECT COUNT(*) excluded_packet_count FROM uplink_packets p WHERE NOT ($packetEligible)");$summary['excluded_packet_count']=(int)$q->fetchColumn();
     $q=$pdo->query("SELECT COUNT(*) event_count,COALESCE(SUM(event_type='OFF_TRAIL'),0) alert_event_count FROM system_events e WHERE $eventEligible");$eventCounts=$q->fetch();
     $q=$pdo->query("SELECT COUNT(*) excluded_event_count,COALESCE(SUM(event_type='OFF_TRAIL'),0) excluded_alert_event_count FROM system_events e WHERE NOT ($eventEligible)");$eventExcluded=$q->fetch();
     $q=$pdo->query("SELECT COUNT(*) command_count,COALESCE(SUM(command_type='OFF_TRAIL_ALERT'),0) alert_command_count FROM downlink_commands c WHERE $commandEligible");$commandCounts=$q->fetch();
