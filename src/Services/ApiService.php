@@ -21,15 +21,20 @@ function source_label(array $r,?string $mode=null): string { $mode=$mode??active
 function research_flags_eligible_sql(string $alias): string {
     return "$alias.is_demo=0 AND $alias.is_rehearsal=0 AND $alias.test_mode=0 AND $alias.is_bench=0";
 }
-function bench_session_enabled(PDO $pdo): bool {
-    $q=$pdo->prepare("SELECT setting_value FROM app_settings WHERE setting_key='bench_session_enabled'");$q->execute();return (string)$q->fetchColumn()==='1';
+function bench_session_enabled(PDO $pdo,bool $lockForIngest=false): bool {
+    $q=$pdo->prepare("SELECT setting_value FROM app_settings WHERE setting_key='bench_session_enabled'".($lockForIngest?' FOR UPDATE':''));$q->execute();return (string)$q->fetchColumn()==='1';
+}
+function explicit_timestamp_utc(string $value,string $field): DateTimeImmutable {
+    if(!preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,6})?)?(?:Z|[+-]\d{2}:\d{2})$/i',$value))throw new InvalidArgumentException("$field must include an explicit timezone (ISO 8601)");
+    $parts=date_parse($value);if(($parts['error_count']??0)>0||($parts['warning_count']??0)>0)throw new InvalidArgumentException("$field must be a valid ISO 8601 date/time");
+    try{return(new DateTimeImmutable($value))->setTimezone(new DateTimeZone('UTC'));}catch(Throwable $e){throw new InvalidArgumentException("$field must be a valid ISO 8601 date/time");}
 }
 function mark_packet_range_bench(PDO $pdo,array $data): array {
     if(array_diff(array_keys($data),['site_id','node_id','from','to','confirmation']))throw new InvalidArgumentException('range request contains an unsupported field');
     if(($data['confirmation']??'')!=='MARK BENCH')throw new InvalidArgumentException('type MARK BENCH to confirm');
     if(!is_string($data['site_id']??null))throw new InvalidArgumentException('site_id is required');$site=$data['site_id'];if(!isset(site_config()[$site]))throw new InvalidArgumentException('unknown site_id');
     if(!is_string($data['node_id']??null))throw new InvalidArgumentException('node_id is required');$node=trim($data['node_id']);if($node===''||strlen($node)>16||!preg_match('/^[A-Za-z0-9_-]+$/',$node))throw new InvalidArgumentException('node_id must contain 1–16 letters, numbers, underscore, or hyphen');
-    if(!is_string($data['from']??null)||!is_string($data['to']??null))throw new InvalidArgumentException('from and to are required');$fromRaw=trim($data['from']);$toRaw=trim($data['to']);if($fromRaw===''||$toRaw==='')throw new InvalidArgumentException('from and to are required');$from=date_create($fromRaw);$to=date_create($toRaw);if(!$from||!$to)throw new InvalidArgumentException('from and to must be valid date/time values');
+    if(!is_string($data['from']??null)||!is_string($data['to']??null))throw new InvalidArgumentException('from and to are required');$fromRaw=trim($data['from']);$toRaw=trim($data['to']);if($fromRaw===''||$toRaw==='')throw new InvalidArgumentException('from and to are required');$from=explicit_timestamp_utc($fromRaw,'from');$to=explicit_timestamp_utc($toRaw,'to');
     $fromValue=$from->format('Y-m-d H:i:s');$toValue=$to->format('Y-m-d H:i:s');if($fromValue>=$toValue)throw new InvalidArgumentException('from must be earlier than to');
     $h=$pdo->prepare('SELECT id FROM hiker_nodes WHERE node_id=?');$h->execute([$node]);$hikerId=(int)$h->fetchColumn();if(!$hikerId)throw new InvalidArgumentException('unknown hiker node_id');
     $q=$pdo->prepare('SELECT id,sequence_number FROM uplink_packets WHERE site_id=? AND hiker_node_id=? AND received_at>=? AND received_at<? AND is_demo=0 AND is_rehearsal=0 AND test_mode=0 AND is_bench=0 AND COALESCE(JSON_UNQUOTE(JSON_EXTRACT(flags_json,\'$.test_mode\')),\'false\') NOT IN (\'true\',\'1\') ORDER BY id');$q->execute([$site,$hikerId,$fromValue,$toValue]);$packets=$q->fetchAll();
@@ -206,7 +211,7 @@ function ingest_packet(PDO $pdo,array $d,bool $dryRun=false): array {
     if($sats!==null&&(filter_var($sats,FILTER_VALIDATE_INT)===false||(int)$sats<0||(int)$sats>255))throw new InvalidArgumentException('satellite_count must be 0–255 or null');
     if($battery!==null&&(filter_var($battery,FILTER_VALIDATE_INT)===false||(int)$battery<0||(int)$battery>100))throw new InvalidArgumentException('battery_level must be 0–100 or null');
     $rawFlags=$u['flags'];if(!is_array($rawFlags))throw new InvalidArgumentException('uplink.flags must be an object');$flagNames=['link_lost','low_battery','emergency','turn_back_received','test_mode'];if(array_diff(array_keys($rawFlags),$flagNames))throw new InvalidArgumentException('uplink.flags contains an unsupported flag');$flags=[];foreach($flagNames as $f)$flags[$f]=flag_bool($rawFlags[$f]??false,$f);$test=$flags['test_mode'];
-    $siteId=selected_site($pdo);$siteFlags=site_record_flags($siteId);$demo=(active_mode()==='DEMO'||!empty($d['is_demo'])||$test||$siteFlags['is_demo'])?1:0;$rehearsal=(!empty($d['is_rehearsal'])||$siteFlags['is_rehearsal'])?1:0;$bench=(active_mode()==='LIVE'&&bench_session_enabled($pdo))?1:0;
+    $siteId=selected_site($pdo);$siteFlags=site_record_flags($siteId);$demo=(active_mode()==='DEMO'||!empty($d['is_demo'])||$test||$siteFlags['is_demo'])?1:0;$rehearsal=(!empty($d['is_rehearsal'])||$siteFlags['is_rehearsal'])?1:0;$bench=0;
     $baseId=trim((string)$r['base_id']);if(!valid_node_code($pdo,$baseId,'BASE_CAMP',$siteId))throw new InvalidArgumentException('reception.base_id must identify an enabled Base Camp Node');
     $path=$r['path_type'];if(!in_array($path,['DIRECT','CHECKPOINT_RELAY'],true))throw new InvalidArgumentException('reception.path_type must be DIRECT or CHECKPOINT_RELAY');
     $checkpointId=null;$checkpointRssi=null;if($path==='CHECKPOINT_RELAY'){$checkpointId=trim((string)($r['checkpoint_id']??''));if(!valid_node_code($pdo,$checkpointId,'CHECKPOINT',$siteId))throw new InvalidArgumentException('checkpoint_id must identify an enabled Checkpoint Node');$checkpointRssi=$r['checkpoint_rssi_dbm']??null;if(filter_var($checkpointRssi,FILTER_VALIDATE_INT)===false||(int)$checkpointRssi< -200||(int)$checkpointRssi>100)throw new InvalidArgumentException('checkpoint_rssi_dbm must be -200–100');}elseif(isset($r['checkpoint_id'])||isset($r['checkpoint_rssi_dbm']))throw new InvalidArgumentException('direct reception cannot carry checkpoint relay fields');
@@ -215,6 +220,7 @@ function ingest_packet(PDO $pdo,array $d,bool $dryRun=false): array {
     $h=$pdo->prepare('SELECT id FROM hiker_nodes WHERE node_id=? AND is_enabled=1');$h->execute([$id]);$hiker=$h->fetchColumn();if(!$hiker)throw new InvalidArgumentException('unknown or disabled hiker node_id');
     $zone=active_zone($pdo,$siteId);$inside=$zone?point_in_polygon($lat,$lng,array_map(fn($ring)=>array_map(fn($v)=>[$v['latitude'],$v['longitude']],$ring),$zone['rings'])):null;
     $pdo->beginTransaction();try{
+      $bench=(active_mode()==='LIVE'&&bench_session_enabled($pdo,true))?1:0;
       $q=$pdo->prepare('SELECT id FROM uplink_packets WHERE site_id=? AND hiker_node_id=? AND sequence_number=?');$q->execute([$siteId,$hiker,(int)$seq]);$existing=$q->fetchColumn();$duplicate=(bool)$existing;
       $packetBench=$bench;
       if($duplicate){$packet=(int)$existing;$q=$pdo->prepare('SELECT is_bench FROM uplink_packets WHERE id=?');$q->execute([$packet]);$packetBench=max($bench,(int)$q->fetchColumn());$q=$pdo->prepare("UPDATE uplink_packets SET is_duplicate=1,validation_status='DUPLICATE',is_demo=GREATEST(is_demo,?),is_rehearsal=GREATEST(is_rehearsal,?),is_bench=GREATEST(is_bench,?) WHERE id=?");$q->execute([$demo,$rehearsal,$packetBench,$packet]);}

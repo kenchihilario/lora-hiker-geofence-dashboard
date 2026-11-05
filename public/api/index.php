@@ -1,6 +1,7 @@
 <?php
 require_once __DIR__ . '/../../src/Services/ApiService.php';
 require_once __DIR__ . '/../../src/Services/RegistryService.php';
+require_once __DIR__ . '/../../src/operator_auth.php';
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 function respond($value,int $status=200): void {http_response_code($status);echo json_encode($value,JSON_UNESCAPED_SLASHES|JSON_INVALID_UTF8_SUBSTITUTE);exit;}
@@ -9,7 +10,7 @@ function bridge_auth(): void {$expected=bridge_token();$given=(string)($_SERVER[
 try {
  $method=$_SERVER['REQUEST_METHOD'];$path=parse_url($_SERVER['REQUEST_URI'],PHP_URL_PATH)??'/';$path=preg_replace('#^/api#','',$path);$path=rtrim($path,'/')?:'/';
  $bridgeRoute=in_array($path,['/bridge/ingest','/bridge/validate','/bridge/status','/commands/pending'],true)||preg_match('#^/commands/[0-9]+/status$#',$path);
- if(!$bridgeRoute)require_local_operator();
+ if(!$bridgeRoute){$authError=operator_api_error($method,false);if($authError)respond(['error'=>$authError['error']],$authError['status']);}
  if($path==='/bridge/ingest'&&$method==='POST'){
    bridge_auth(); $incoming=body();
    $bridgeProfile=db_profile();$scratchException=scratch_live_ingest_allowed((string)$bridgeProfile['db_name']);

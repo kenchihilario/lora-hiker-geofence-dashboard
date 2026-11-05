@@ -21,6 +21,8 @@ try { $configuredDemoDb = & $php $probe; $allowedDb = $configuredDemoDb -eq 'hik
 finally { Remove-Item -LiteralPath $probe -ErrorAction SilentlyContinue }
 function Api($path, $method='Get', $body=$null) {
   $args = @{ Uri="$BaseUrl/$path"; Method=$method; TimeoutSec=10 }
+  if($env:TRAILWATCH_TEST_SESSION_COOKIE){$webSession=New-Object Microsoft.PowerShell.Commands.WebRequestSession;$cookieHost=([uri]$BaseUrl).Host;foreach($part in $env:TRAILWATCH_TEST_SESSION_COOKIE.Split(';')){$pair=$part.Trim().Split('=',2);if($pair.Count -eq 2){$webSession.Cookies.Add((New-Object System.Net.Cookie($pair[0],$pair[1],'/',$cookieHost)))}};$args.WebSession=$webSession}
+  if($env:TRAILWATCH_TEST_CSRF_TOKEN){$args.Headers=@{'X-CSRF-Token'=$env:TRAILWATCH_TEST_CSRF_TOKEN}}
   if ($null -ne $body) { $args.ContentType='application/json'; $args.Body=($body | ConvertTo-Json -Depth 8 -Compress) }
   Invoke-RestMethod @args
 }

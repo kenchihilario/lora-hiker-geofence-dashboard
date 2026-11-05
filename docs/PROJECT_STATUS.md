@@ -5,6 +5,15 @@
 **Branch:** `main` (contains the merged `codex/live-empty-db-readiness` work)
 **Scope:** Dashboard, PHP API/backend, MariaDB schema/migrations, local tooling, and dashboard-relevant research proposal requirements. This report is based on the current checked-out source and test runner; it does not claim the hardware has been tested. No credentials or tokens are included.
 
+## Handoff snapshot — 2026-11-04
+
+- Base revision: `8c006b1` (`Add BENCH classification`) on `main`. BENCH time-zone/switch-lock fixes and the operator authentication work are in the working tree with README/status updates; these follow-up changes are not committed yet.
+- BENCH implementation is included: migration 009, LIVE-only session switch, range classification, research exclusion, packet-log/CSV labels, and scratch tests.
+- Verification rerun after the BENCH and operator-auth fixes: `& 'C:\xampp\php\php.exe' tests/run_scratch_suite.php` completed successfully and dropped disposable database `hiker_dashboard_scratch_6f8e65fff490`.
+- BENCH range inputs now convert browser-local times to explicit UTC ISO timestamps; the API rejects timezone-free input and compares normalized UTC values. Ingest locks the Bench setting inside the packet transaction.
+- Read-only LIVE readiness check on 2026-11-04: CHECK TABLE passed for 19 tables; all nine migration checksums match; an active PUP safe zone exists; no demo/rehearsal/test rows were counted; latest LIVE backup was about 3 hours old. LIVE is not field-ready: zero enabled hikers and no Base Camp or Checkpoint nodes are registered. No LIVE data/schema was changed.
+- The research paper, `config.php`, serial framing, LoRa packet format, point-in-polygon behavior, reply priority, and 15-second link-loss rule were not changed for BENCH.
+
 ## Status labels
 
 - **IMPLEMENTED AND TESTED** — present and exercised by a passing test in the latest recorded scratch-suite run.
@@ -25,7 +34,7 @@
 |---|---|
 | `config.example.php`, ignored `config.php` | Demo/live database profiles, separate bridge tokens, and local-only setting. Secrets stay local (`src/db.php:2-16,53-73`). |
 | `config/sites.php` | Site registry defaults, supplied reference pins, and explicit unset coordinates (`config/sites.php:1-42`). |
-| `src/db.php` | Active mode/profile selection, test guard, PDO connection, and local operator guard (`src/db.php:18-79`). |
+| `src/db.php`, `src/operator_auth.php` | Active mode/profile selection, PDO connection, loopback guard, local operator sessions, credentials and CSRF checks. |
 | `src/geofence.php` | Point-in-polygon and edge classification (`src/geofence.php:1-16`). |
 | `src/Services/ApiService.php` | Validation, source flags, ingest, geofence orchestration, downlink selection/routing, research summary, and demo clearing. |
 | `public/api/index.php` | API route dispatch, authentication/local guard, JSON responses, logs, CSV export, and settings. |
@@ -35,7 +44,7 @@
 | `public/assets/js/safe-zone-geometry.js`, `safe-zone.js` | Local geometry, Douglas–Peucker simplification, GPX preview, polygon editing/saving. |
 | `public/assets/css/dashboard.css` | Local dashboard/editor styles. |
 | `sql/schema.sql`, `sql/demo_seed.sql`, `sql/migrations/` | Schema-only initialization, demo seed, and nine ordered migrations; migration 008 stores safe-zone ring boundaries and 009 adds BENCH classification. |
-| `tools/setup_db.php`, `migrate_db.php`, `backup_db.php`, `live_check.php` | DB setup, migration, timestamped backup, and read-only LIVE readiness check. |
+| `tools/setup_db.php`, `migrate_db.php`, `backup_db.php`, `live_check.php`, `set_operator_password.php` | DB setup, migration, timestamped backup, read-only LIVE readiness, and local operator credential setup. |
 | `tools/simulate_hikers.php`, `tools/scenarios/` | DEMO-only logical-packet simulator and scenarios; it does not simulate radio hardware. |
 | `tests/` | PHP, JavaScript, PowerShell, API smoke, and isolated scratch-LIVE integration tests. |
 | `docs/CODEX_WEBSITE_SPEC.md`, `docs/CHAPTER4_DATA.md`, `docs/PHONE_LINK_OPTIONS.md` | Requirements copy and data/phone planning notes. The paper remains unchanged. |
@@ -54,16 +63,16 @@
 
 ## 3. API and access control
 
-**IMPLEMENTED AND TESTED — local-only operator guard.** `local_only` defaults ON and only `127.0.0.1` / `::1` are accepted for operator/settings routes (`src/db.php:67-73`). Bridge routes use the active profile's `X-Bridge-Token` (`public/api/index.php:7-8,11,109-111`). Keep the PHP server on loopback; README explicitly says never expose it to a LAN/public interface (`README.md:7`). There are no user accounts, sessions, or CSRF tokens.
+**IMPLEMENTED AND TESTED — operator authentication.** Operator pages and non-bridge API routes require the local operator account and a PHP session; sessions regenerate on login, use HttpOnly/SameSite cookies, and expire when the browser session ends. State-changing operator API requests require a session-bound CSRF header. Credentials are stored as a password hash in ignored `data/operator.json`, provisioned with `tools/set_operator_password.php`; no DB migration is needed. Bridge routes remain session-independent and require the active profile's `X-Bridge-Token`. The loopback guard remains on (`src/operator_auth.php`; `public/login.php`; `public/logout.php`; `public/api/index.php`; `tests/operator_auth_scratch_test.php`).
 
 Current route families in `public/api/index.php` include:
 
-- **Read dashboard:** `GET /api/status`, `/api/hikers`, `/api/hikers/{node_id}/latest`, `/api/positions/latest`, `/api/safe-zone`, `/api/events`, `/api/logs/packets`, `/api/research/summary`, `/api/settings/phase-mode`, `/api/sites`, `/api/network-nodes`, `/api/reference-points`, `/api/commands/storm-turn-back/active`.
-- **Operator writes:** `POST /api/settings/site`, `POST /api/settings/phase-mode`, `PUT /api/safe-zone`, `POST /api/events/{id}/resolve`, storm campaign arm/cancel endpoints, demo clearing, hiker registry create/update, site-location and network-node/reference-point CRUD and verification actions.
+- **Read dashboard:** `GET /api/status`, `/api/hikers`, `/api/hikers/{node_id}/latest`, `/api/positions/latest`, `/api/safe-zone`, `/api/events`, `/api/logs/packets`, `/api/research/summary`, `/api/settings/phase-mode`, `/api/settings/bench-session`, `/api/sites`, `/api/network-nodes`, `/api/reference-points`, `/api/commands/storm-turn-back/active`.
+- **Operator writes:** `POST /api/settings/site`, `/api/settings/phase-mode`, `/api/settings/bench-session`, `/api/packets/mark-bench`, `PUT /api/safe-zone`, `POST /api/events/{id}/resolve`, storm campaign arm/cancel endpoints, demo clearing, hiker registry create/update, site-location and network-node/reference-point CRUD and verification actions.
 - **Bridge:** `POST /api/bridge/ingest`, `/api/bridge/validate`, `/api/bridge/status`, `GET /api/commands/pending`, and `POST /api/commands/{id}/status`.
 - **Export and readiness:** `GET /api/export.csv`, `GET /api/live-check`.
 
-Inputs are JSON or query filters as appropriate; validation returns HTTP errors for malformed fields/ranges and unknown records. Most operator routes have no token but are loopback-guarded. Bridge ingest/status/command routes require bridge token; validation additionally requires loopback and performs a dry run. LIVE-check is local and read-only. See route dispatch at `public/api/index.php:11-111`; tests include `tests/api_smoke.php` and `tests/live_first_run_scratch_test.php`.
+Inputs are JSON or query filters as appropriate; validation returns HTTP errors for malformed fields/ranges and unknown records. Operator API routes require a logged-in local session; writes require CSRF. Bridge ingest/status/command routes require bridge token; validation additionally requires loopback and performs a dry run. LIVE-check is local and read-only. See route dispatch at `public/api/index.php`; tests include `tests/api_smoke.php`, `tests/operator_auth_scratch_test.php`, and `tests/live_first_run_scratch_test.php`.
 
 **IMPLEMENTED AND TESTED — dry-run validation.** `POST /api/bridge/validate` authenticates, validates without committing, and is guarded to loopback. Scratch integration verifies packet/reception/command tables remain unchanged (`public/api/index.php:23-24`; `tests/live_first_run_scratch_test.php:33-35`).
 
@@ -83,7 +92,7 @@ Inputs are JSON or query filters as appropriate; validation returns HTTP errors 
 8. `008_safe_zone_rings.sql` — ring-aware safe-zone vertices for loop corridors.
 9. `009_bench_classification.sql` — BENCH flags for packets, receptions, events, commands, and operator actions.
 
-The runner uses checksums and skips already applied migrations; a scratch test checks repeated application of migration 009 and nine ledger rows (`tools/migrate_db.php`; `tests/migration_scratch_test.php:4-8`). A historical LIVE readiness note reported migration 007 was pending in its 2026-11-04 snapshot (`docs/LIVE_FIRST_RUN.md:20-29,57-59`). The operator later reported running the LIVE backup, migration, and readiness-check commands. **This update did not inspect the LIVE database or see those commands' output, so the current applied migration set, backup path, and readiness result remain unverified.**
+The runner uses checksums and skips already applied migrations; a scratch test checks repeated application of migration 009 and nine ledger rows (`tools/migrate_db.php`; `tests/migration_scratch_test.php:4-8`). A historical LIVE readiness note reported migration 007 was pending in its 2026-11-04 snapshot (`docs/LIVE_FIRST_RUN.md:20-29,57-59`). A later read-only readiness check verified the current LIVE migration ledger and integrity; the latest LIVE backup was present. LIVE field readiness is still incomplete because no hikers or Base Camp/Checkpoint nodes are registered.
 
 ## 5. Frontend, map, and safe-zone editor
 
@@ -97,7 +106,7 @@ The runner uses checksums and skips already applied migrations; a scratch test c
 
 **IMPLEMENTED AND TESTED — separate DEMO and LIVE profiles.** The local mode file defaults safely to DEMO; each mode selects its own DB profile and bridge token (`src/db.php:18-55`). LIVE ingest rejects demo, rehearsal, and test-mode packets; LIVE selection rejects rehearsal/demo sites; the simulator refuses LIVE mode (`src/Services/ApiService.php:6-15`; `src/db.php:49`; `public/api/index.php:13-24`; `tests/live_first_run_scratch_test.php:21-24,41`). The scratch LIVE test uses a disposable DB and does not connect to the actual LIVE database.
 
-**IMPLEMENTED AND TESTED — mode actions and visibility.** The settings page supports mode switching and audit, a demo-only clear action with typed confirmation and prior backup, and a LIVE readiness checklist. The dashboard shows the active mode and active DB/flagged-row check; flagged LIVE records display an error. Clearing preserves unflagged legacy position/alert rows and reports how many were kept (`src/Services/ApiService.php:30-47`; `public/index.php:56`; `public/api/index.php`; `tests/clear_demo_scratch_test.php`).
+**IMPLEMENTED AND TESTED — mode actions and visibility.** The settings page supports mode switching and audit, a demo-only clear action with typed confirmation and prior backup, a LIVE readiness checklist, and a LIVE-only Bench session switch with audit. Operators can mark an existing site/hiker/time range as BENCH by typing `MARK BENCH`; browser-local times are converted to UTC, and the API requires a timestamp with an explicit timezone. Protected DEMO, REHEARSAL, and TEST rows remain unchanged. Ingest locks the Bench setting inside its transaction so a concurrent switch is ordered against the uplink. The dashboard shows the active mode, active DB/flagged-row check, and an active Bench session banner (`public/settings.php`; `public/api/index.php:43-54,68`; `public/assets/js/bench-time.js`; `public/index.php`; `tests/bench_scratch_test.php`; `tests/bench_time_test.js`). Clearing preserves unflagged legacy position/alert rows and reports how many were kept (`src/Services/ApiService.php:30-47`; `tests/clear_demo_scratch_test.php`).
 
 Configured site data (`config/sites.php:4-42`):
 
@@ -130,25 +139,26 @@ The proposal DOCX is not modified by this project work. Table 8 physical sizes a
 
 ## 8. Tests and verification
 
-**IMPLEMENTED AND TESTED — latest scratch suite.** `tests/run_scratch_suite.php` completed successfully after BENCH support: 247 PASS-prefixed output lines and zero FAIL lines. The suite ran PHP, Node, and PowerShell tests against disposable scratch databases, which it dropped (`tests/run_scratch_suite.php:17-31`). No configured test DB or LIVE database was used.
+**IMPLEMENTED AND TESTED — latest scratch suite.** Re-run on 2026-11-04 after the BENCH and operator-auth changes: `& 'C:\xampp\php\php.exe' tests/run_scratch_suite.php` completed successfully, including authenticated/anonymous API checks, CSRF rejection, and bridge-token independence. PHP/JS syntax checks passed. The suite used disposable scratch databases and dropped them (`tests/run_scratch_suite.php`). No configured test DB or LIVE data was modified.
 
 Included test files cover:
 
 - PHP logic: `geofence_test.php`, `polygon_validation_test.php`, `research_summary_test.php`, `mode_safety_test.php`, `live_check_test.php`, `registry_service_test.php`.
 - DB safety/isolated behavior: `clear_demo_scratch_test.php`, `live_schema_scratch_test.php`, `migration_scratch_test.php`, `bench_scratch_test.php`, `live_first_run_scratch_test.php`.
 - API and pages: `api_smoke.php`, `site_safe_zone_smoke.ps1`.
-- Browser logic/static contracts: `gpx_corridor_test.js`, `gpx_ring_test.js`, `dashboard_map_labels_test.js`, `dashboard_packet_log_contract_test.js`, `live_empty_dashboard_test.js`, `offline_static_test.js`.
+- Browser logic/static contracts: `gpx_corridor_test.js`, `gpx_ring_test.js`, `bench_time_test.js`, `dashboard_map_labels_test.js`, `dashboard_packet_log_contract_test.js`, `live_empty_dashboard_test.js`, `offline_static_test.js`.
 - Ring persistence/geofence integration: `ring_zone_scratch_test.php` creates and drops its own ring and pre-008 scratch databases.
+- Operator access integration: `operator_auth_scratch_test.php` verifies anonymous denial, session access, CSRF rejection/acceptance, and bridge token independence.
 
-The suite creates/drops scratch databases and launches only loopback test servers. Actual LIVE database integrity/migration state was not queried during this review. Use `docs/LIVE_FIRST_RUN.md` for the read-only readiness workflow; back up before any schema migration.
+The suite creates/drops scratch databases and launches only loopback test servers. The actual LIVE database was checked read-only for integrity and migration state; no LIVE data or schema was changed. Use `docs/LIVE_FIRST_RUN.md` for the readiness workflow; back up before any future schema migration.
 
-**Operator-reported LIVE follow-up (2026-11-04):** The operator says they ran `tools/backup_db.php --profile=live`, `tools/migrate_db.php --profile=live --allow-live-schema`, and `tools/live_check.php`. The output and resulting backup location were not provided here, and this report did not connect to LIVE; success and current LIVE readiness are therefore not verified.
+**Read-only LIVE follow-up (2026-11-04):** The configured LIVE profile was queried through `live_check_report()` without changing the active mode file. CHECK TABLE returned OK for 19 tables; nine migration ledger checksums matched; selected site was `pup`; one active safe zone was present; flagged demo/rehearsal/test count was zero; a LIVE SQL backup was found at about 3 hours old. The report found zero enabled hikers and no Base Camp or Checkpoint nodes, so readiness failed pending operator site/node setup. No LIVE writes or migrations were performed.
 
 ## 9. Data integrity and security
 
 **IMPLEMENTED AND TESTED — mode isolation controls.** Research eligibility uses demo/rehearsal/test/BENCH flags and source packet metadata for related rows. LIVE mode blocks demo/rehearsal/test ingest; the live empty-schema scratch test confirms rejection writes no packet. Bench session marks unflagged LIVE uplinks; demo clearing deletes only flagged demo/rehearsal/test rows (and proven linked rows) and preserves legacy unflagged positions/alerts, reporting the retained count (`src/Services/ApiService.php`; `tests/bench_scratch_test.php`; `tests/clear_demo_scratch_test.php`).
 
-**PARTIAL — web security.** Loopback-only guard and separate bridge tokens exist. The application has no user login, session authorization, or CSRF protection. Binding the development server to another interface would expose operator actions and data to reachable clients; keep it on 127.0.0.1. Do not publish the local bridge token.
+**IMPLEMENTED AND TESTED — web security controls.** Local operator login, PHP sessions, CSRF checks on operator writes, loopback-only access, and separate bridge tokens are implemented. This remains a single local operator account; no multi-user roles or remote access are provided. Keep the server bound to 127.0.0.1 and do not publish bridge tokens.
 
 ## 10. Offline guarantee
 
@@ -160,7 +170,7 @@ The suite creates/drops scratch databases and launches only loopback test server
 2. **High — no physical system verification:** firmware, radios, serial link, phone app, and hiker-side response have not been built/tested.
 3. **High — site geometry:** PUP boundary is demo-only; Balagbag and Mapalad route geometry, base and checkpoint coordinates need survey/operator data.
 4. **Medium — timing evidence:** command timestamps measure base/bridge lifecycle only; 2 s / 3 s receive windows and 15 s hiker warning behavior need hardware/record-sheet measurements.
-5. **Medium — security:** no accounts/sessions/CSRF; intended deployment is one local operator on loopback.
+5. **Medium — security scope:** one local operator login is supported; no multi-user roles or remote access model exists. Keep the server on loopback.
 6. **Medium — offline runtime proof:** static external-reference scan passed; no runtime browser network capture recorded here.
 7. **Low — version drift:** README and old historical reports may describe prior states; use current code and this report's cited evidence.
 
@@ -179,23 +189,23 @@ The suite creates/drops scratch databases and launches only loopback test server
 
 1. Use the audited Bench session switch during Phase 1 trials, then verify it is OFF before scored field collection.
 2. Collect and verify site data, then mark registry locations verified and import surveyed GPX corridors.
-3. Review the operator's LIVE backup, migration, and readiness-check outputs and confirm the resulting migration ledger/readiness before field use; do not rerun migrations without checking current state.
+3. Register the intended LIVE hiker IDs and Base Camp/Checkpoint nodes; leave coordinates unset until supplied/surveyed. Re-run the read-only LIVE check after setup to confirm readiness.
 4. Agree packet/serial contract with firmware owners without assuming sizes or framing; then implement and bench-test the bridge when hardware exists.
 5. Capture manual measurement fields from the proposal sheets and verify physical timing, alerts, battery, and wrong-node observations.
-6. Add authenticated operator accounts/CSRF if the system ever needs access beyond its single-machine loopback setup.
+6. Keep the app bound to loopback. Add additional accounts/roles only if the project later needs multiple operators; remote deployment would need a separate security review.
 
 ## One-page status summary
 
 | Area | Status | Note |
 |---|---|---|
 | PHP/MariaDB dashboard foundation | **IMPLEMENTED AND TESTED** | Local app, API, settings, map, logs, and controls. |
-| Schema and migration system | **IMPLEMENTED AND TESTED** | Schema-only setup, separate demo seed, checksum ledger through migration 008. |
+| Schema and migration system | **IMPLEMENTED AND TESTED** | Schema-only setup, separate demo seed, checksum ledger through migration 009; scratch test reruns the migrator safely. |
 | DEMO/LIVE mode separation | **IMPLEMENTED AND TESTED** | Local mode file, separate profiles/tokens, LIVE packet rejection and readiness checks. |
 | Uplink ingest/research/event/command logic | **IMPLEMENTED AND TESTED** | Logical fields only; dedupe, reply priority, route, timestamps and campaign behavior. |
 | Offline SVG map and GPX editor | **IMPLEMENTED AND TESTED** | No tiles, local projection, bounded labels, simplification preview. |
-| Test suite | **IMPLEMENTED AND TESTED** | Latest recorded scratch run passed; not rerun for this document edit. |
-| Security | **PARTIAL** | Loopback + bridge token; no accounts, sessions or CSRF. |
-| LIVE DB state | **PARTIAL** | Operator reports running backup, migration, and live check; outputs and current DB state were not verified in this report. |
+| Test suite | **IMPLEMENTED AND TESTED** | Full PHP, Node, API, and PowerShell scratch suite passed on 2026-11-04. |
+| Security | **IMPLEMENTED AND TESTED** | Local operator account/session, CSRF on writes, loopback guard, and bridge token; single-account local model. |
+| LIVE DB state | **PARTIAL** | Integrity and nine migrations pass; safe zone and backup exist, but hiker registry and Base Camp/Checkpoint nodes are missing. |
 | Bench-data research classification | **IMPLEMENTED AND TESTED** | BENCH is stored per packet and excluded from research counts; switch/range actions are audited. |
 | Real radio/phone/hardware path | **BLOCKED (waiting on hardware/firmware/site data)** | Firmware, physical hardware and field observations pending. |
 | Surveyed trail/site configuration | **BLOCKED (waiting on hardware/firmware/site data)** | Needed coordinates and verified boundaries are incomplete. |
