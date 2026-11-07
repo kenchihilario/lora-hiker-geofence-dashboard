@@ -4,6 +4,14 @@ param(
   [string]$Database = 'hiker_dashboard_test_codex'
 )
 $ErrorActionPreference = 'Stop'
+$operatorWebSession = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+if ($env:TRAILWATCH_TEST_SESSION_COOKIE) {
+  $cookieMatch = [regex]::Match($env:TRAILWATCH_TEST_SESSION_COOKIE,'(?:^|;\s*)(?<name>TRAILWATCHSESSID)=(?<value>[^;]+)')
+  if (-not $cookieMatch.Success) { throw 'Scratch operator session cookie is unavailable.' }
+  $uri = [uri]$BaseUrl
+  $operatorCookie = [System.Net.Cookie]::new($cookieMatch.Groups['name'].Value,$cookieMatch.Groups['value'].Value,'/',$uri.Host)
+  $operatorWebSession.Cookies.Add($uri,$operatorCookie)
+}
 $root = Split-Path -Parent $PSScriptRoot
 $modePath = Join-Path $root 'data\mode.json'
 if ($env:TRAILWATCH_SCRATCH_TEST -ne '1' -and (Test-Path -LiteralPath $modePath)) {
@@ -20,7 +28,9 @@ $probe = Join-Path $runtime 'site_test_db_probe.php'
 try { $configuredDemoDb = & $php $probe; $allowedDb = $configuredDemoDb -eq 'hiker_dashboard_test_codex' -or ($env:TRAILWATCH_SCRATCH_TEST -eq '1' -and $configuredDemoDb -match '^hiker_dashboard_scratch_[a-f0-9]{12}$'); if ($LASTEXITCODE -ne 0 -or -not $allowedDb) { throw 'REFUSED: tests require the dedicated DEMO test DB or an explicitly enabled scratch profile.' } }
 finally { Remove-Item -LiteralPath $probe -ErrorAction SilentlyContinue }
 function Api($path, $method='Get', $body=$null) {
-  $args = @{ Uri="$BaseUrl/$path"; Method=$method; TimeoutSec=10 }
+  $headers = @{}
+  if ($env:TRAILWATCH_TEST_SESSION_COOKIE) { $headers['X-CSRF-Token'] = $env:TRAILWATCH_TEST_CSRF_TOKEN }
+  $args = @{ Uri="$BaseUrl/$path"; Method=$method; TimeoutSec=10; Headers=$headers; WebSession=$operatorWebSession }
   if ($null -ne $body) { $args.ContentType='application/json'; $args.Body=($body | ConvertTo-Json -Depth 8 -Compress) }
   Invoke-RestMethod @args
 }

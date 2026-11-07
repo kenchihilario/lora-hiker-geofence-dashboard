@@ -29,6 +29,7 @@ function ring_coords(array $pairs):array{return array_map(fn($p)=>['latitude'=>$
 function ring_packet(int $sequence,float $lat,float $lon):array{return ['uplink'=>['node_id'=>'H1','sequence_number'=>$sequence,'latitude'=>$lat,'longitude'=>$lon,'gps_accuracy_m'=>5,'satellite_count'=>8,'battery_level'=>90,'flags'=>['link_lost'=>false,'low_battery'=>false,'emergency'=>false,'turn_back_received'=>false,'test_mode'=>false]],'reception'=>['base_id'=>'BASE','path_type'=>'DIRECT']];}
 try{
     $newName=$names[0];$databases[]=$newName;$pdo=ring_db($admin,$base,$newName,false);
+    $pdo->exec("INSERT INTO test_sessions(site_id,label,phase,design,tester_code,test_point) VALUES('pup','Ring integration session','PHASE1','A','SCRATCH','PUP')");
     $outer=ring_coords([[14.8000,121.0000],[14.8000,121.0020],[14.8020,121.0020],[14.8020,121.0000]]);
     $inner=ring_coords([[14.8005,121.0005],[14.8005,121.0015],[14.8015,121.0015],[14.8015,121.0005]]);
     $saved=save_zone($pdo,['site_id'=>'pup','name'=>'scratch ring corridor','is_demo'=>true,'rings'=>[$outer,$inner]]);

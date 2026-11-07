@@ -1,5 +1,5 @@
 <?php
-require_once __DIR__.'/../src/db.php'; require_local_operator(); $dashboardMode=active_mode();
+require_once __DIR__.'/../src/operator_auth.php'; operator_page_guard(); $csrf=operator_csrf_token(); $dashboardMode=active_mode();
 // Milestone 1 dashboard shell. All displayed locations and events are illustrative demo data.
 $hikers = [
     ['id' => 'H1', 'name' => 'Maya Santos', 'state' => 'SAFE', 'battery' => 86, 'heard' => 'Base Camp Node', 'age' => '18 sec ago', 'lat' => '14.8031', 'lng' => '121.0003', 'accuracy' => '± 6 m', 'rssi' => '−82 dBm', 'x' => 46, 'y' => 46],
@@ -37,7 +37,7 @@ function e(string $value): string { return htmlspecialchars($value, ENT_QUOTES, 
       <a class="nav-link disabled" href="#hikers"><span class="nav-icon">♙</span>Hiker nodes</a>
       <a class="nav-link disabled" href="#logs"><span class="nav-icon">≡</span>Event logs</a>
     </nav>
-    <div class="sidebar-bottom"><div class="operator"><div class="avatar">BC</div><div><strong>Base Camp</strong><small>Local operator</small></div><span class="online-dot"></span></div><div class="local-note"><span>▣</span> LOCAL SYSTEM<br><small>Designed for offline use</small></div></div>
+    <div class="sidebar-bottom"><form class="operator-logout" method="post" action="logout.php"><input type="hidden" name="csrf_token" value="<?= htmlspecialchars($csrf,ENT_QUOTES,'UTF-8') ?>"><button type="submit">Sign out</button></form><div class="operator"><div class="avatar">BC</div><div><strong>Base Camp</strong><small>Local operator</small></div><span class="online-dot"></span></div><div class="local-note"><span>▣</span> LOCAL SYSTEM<br><small>Designed for offline use</small></div></div>
   </aside>
 
   <main class="main-area">
@@ -81,7 +81,7 @@ function e(string $value): string { return htmlspecialchars($value, ENT_QUOTES, 
           <div class="hiker-foot"><span>GPS <?= e($hiker['accuracy']) ?> <b>·</b> <?= e($hiker['rssi']) ?></span><span class="demo-chip">DEMO</span></div>
         </article><?php endforeach; endif; ?></div>
       </section>
-      <section class="panel packet-log-panel" id="logs" aria-labelledby="packet-log-title"><div class="panel-heading"><div><div class="section-kicker">RECEPTIONS</div><h2 id="packet-log-title">Packet log</h2></div><div><a class="offline-pill" href="api/export.csv?type=packets">Export packet CSV</a> <a class="offline-pill" href="api/export.csv?type=events">Export event CSV</a></div></div><div class="packet-log-scroll"><table class="packet-log-table"><thead><tr><th>Time</th><th>Hiker / seq</th><th>Heard by</th><th>Relay hop</th><th>Route</th><th>Duplicate</th></tr></thead><tbody id="packet-log-rows"><tr><td colspan="6" class="empty">Loading packet receptions…</td></tr></tbody></table></div></section>
+      <section class="panel packet-log-panel" id="logs" aria-labelledby="packet-log-title"><div class="panel-heading"><div><div class="section-kicker">RECEPTIONS</div><h2 id="packet-log-title">Packet log</h2></div><div><a class="offline-pill" href="api/export.csv?type=packets">Export packet CSV</a> <a class="offline-pill" href="api/export.csv?type=events">Export event CSV</a></div></div><div class="packet-log-scroll"><table class="packet-log-table"><thead><tr><th>Time</th><th>Hiker / seq</th><th>Heard by</th><th>Relay hop</th><th>Route</th><th>Duplicate</th><th>Test session</th></tr></thead><tbody id="packet-log-rows"><tr><td colspan="7" class="empty">Loading packet receptions…</td></tr></tbody></table></div></section>
     </div>
     <footer class="page-footer"><span>TRAILWATCH <b>·</b> LOCAL BASE CAMP CONSOLE</span><span>Sample coordinates and events <b>·</b> Not for field-safety decisions</span></footer>
   </main>

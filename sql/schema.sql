@@ -59,6 +59,18 @@ CREATE TABLE IF NOT EXISTS app_settings (
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 INSERT IGNORE INTO app_settings(setting_key,setting_value) VALUES('selected_site','pup'),('phase_mode','PHASE1'),('bench_session_enabled','0');
+CREATE TABLE IF NOT EXISTS test_sessions (
+  id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  site_id VARCHAR(32) NOT NULL,
+  label VARCHAR(100) NOT NULL,
+  phase VARCHAR(32) NULL,
+  design ENUM('A','B') NULL,
+  tester_code VARCHAR(64) NULL,
+  test_point VARCHAR(120) NULL,
+  started_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  ended_at DATETIME(3) NULL,
+  KEY ix_test_session_active(site_id,ended_at,started_at)
+) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS site_locations (
   site_id VARCHAR(32) PRIMARY KEY,
   latitude DECIMAL(10,7) NULL,
@@ -89,6 +101,7 @@ CREATE TABLE IF NOT EXISTS uplink_packets (
   flags_json JSON NULL,
   classification ENUM('INSIDE','OUTSIDE','UNCLASSIFIED') NOT NULL DEFAULT 'UNCLASSIFIED',
   safe_zone_id INT UNSIGNED NULL,
+  session_id BIGINT UNSIGNED NULL,
   received_at DATETIME NOT NULL,
   is_duplicate TINYINT(1) NOT NULL DEFAULT 0,
   validation_status ENUM('VALID','INVALID','LATE','DUPLICATE') NOT NULL DEFAULT 'VALID',
@@ -99,14 +112,16 @@ CREATE TABLE IF NOT EXISTS uplink_packets (
   is_bench TINYINT(1) NOT NULL DEFAULT 0,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY ix_uplink_hiker(hiker_node_id),
-  UNIQUE KEY uq_hiker_site_sequence(site_id,hiker_node_id,sequence_number),
-  KEY ix_uplink_received(received_at), KEY ix_uplink_class(classification),
+  UNIQUE KEY uq_hiker_site_session_sequence(site_id,hiker_node_id,session_id,sequence_number),
+  KEY ix_uplink_received(received_at), KEY ix_uplink_class(classification), KEY ix_uplink_session(session_id),
   CONSTRAINT fk_uplink_hiker FOREIGN KEY(hiker_node_id) REFERENCES hiker_nodes(id),
-  CONSTRAINT fk_uplink_zone FOREIGN KEY(safe_zone_id) REFERENCES safe_zones(id) ON DELETE SET NULL
+  CONSTRAINT fk_uplink_zone FOREIGN KEY(safe_zone_id) REFERENCES safe_zones(id) ON DELETE SET NULL,
+  CONSTRAINT fk_uplink_session FOREIGN KEY(session_id) REFERENCES test_sessions(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS packet_receptions (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   uplink_packet_id BIGINT UNSIGNED NOT NULL,
+  session_id BIGINT UNSIGNED NULL,
   received_by_node VARCHAR(16) NOT NULL,
   base_id VARCHAR(16) NOT NULL DEFAULT 'BASE',
   checkpoint_id VARCHAR(16) NULL,
@@ -124,8 +139,9 @@ CREATE TABLE IF NOT EXISTS packet_receptions (
   relay_hop_delay_ms INT UNSIGNED NULL,
   raw_metadata JSON NULL,
   test_mode TINYINT(1) NOT NULL DEFAULT 0,
-  KEY ix_reception_packet(uplink_packet_id), KEY ix_reception_time(received_at),
-  CONSTRAINT fk_reception_packet FOREIGN KEY(uplink_packet_id) REFERENCES uplink_packets(id) ON DELETE CASCADE
+  KEY ix_reception_packet(uplink_packet_id), KEY ix_reception_time(received_at), KEY ix_reception_session(session_id),
+  CONSTRAINT fk_reception_packet FOREIGN KEY(uplink_packet_id) REFERENCES uplink_packets(id) ON DELETE CASCADE,
+  CONSTRAINT fk_reception_session FOREIGN KEY(session_id) REFERENCES test_sessions(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS downlink_commands (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -134,6 +150,7 @@ CREATE TABLE IF NOT EXISTS downlink_commands (
   base_id VARCHAR(16) NOT NULL DEFAULT 'BASE',
   sequence_number INT UNSIGNED NULL,
   storm_campaign_id BIGINT UNSIGNED NULL,
+  session_id BIGINT UNSIGNED NULL,
   route_type ENUM('DIRECT','CHECKPOINT_RELAY') NOT NULL DEFAULT 'DIRECT',
   route_via_node_id VARCHAR(16) NULL,
   command_type ENUM('ACK','OFF_TRAIL_ALERT','STORM_TURN_BACK','SOS_ACK') NOT NULL,
@@ -149,8 +166,9 @@ CREATE TABLE IF NOT EXISTS downlink_commands (
   delivered_at DATETIME(3) NULL,
   received_at DATETIME(3) NULL,
   failure_reason VARCHAR(500) NULL,
-  KEY ix_command_status(status,created_at), KEY ix_command_hiker(hiker_node_id,created_at), KEY ix_command_storm(storm_campaign_id),
-  CONSTRAINT fk_command_hiker FOREIGN KEY(hiker_node_id) REFERENCES hiker_nodes(id)
+  KEY ix_command_status(status,created_at), KEY ix_command_hiker(hiker_node_id,created_at), KEY ix_command_storm(storm_campaign_id), KEY ix_command_session(session_id),
+  CONSTRAINT fk_command_hiker FOREIGN KEY(hiker_node_id) REFERENCES hiker_nodes(id),
+  CONSTRAINT fk_command_session FOREIGN KEY(session_id) REFERENCES test_sessions(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS storm_turnback_campaigns (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -172,6 +190,7 @@ CREATE TABLE IF NOT EXISTS storm_turnback_campaigns (
 CREATE TABLE IF NOT EXISTS system_events (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   hiker_node_id INT UNSIGNED NULL,
+  session_id BIGINT UNSIGNED NULL,
   event_type VARCHAR(50) NOT NULL,
   severity ENUM('INFO','WARNING','CRITICAL','ERROR') NOT NULL DEFAULT 'INFO',
   message VARCHAR(500) NOT NULL,
@@ -184,8 +203,9 @@ CREATE TABLE IF NOT EXISTS system_events (
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   resolved_at DATETIME NULL,
   resolved_by VARCHAR(100) NULL,
-  KEY ix_event_time(created_at), KEY ix_event_type(event_type), KEY ix_event_hiker(hiker_node_id,created_at),
-  CONSTRAINT fk_event_hiker FOREIGN KEY(hiker_node_id) REFERENCES hiker_nodes(id) ON DELETE SET NULL
+  KEY ix_event_time(created_at), KEY ix_event_type(event_type), KEY ix_event_hiker(hiker_node_id,created_at), KEY ix_event_session(session_id),
+  CONSTRAINT fk_event_hiker FOREIGN KEY(hiker_node_id) REFERENCES hiker_nodes(id) ON DELETE SET NULL,
+  CONSTRAINT fk_event_session FOREIGN KEY(session_id) REFERENCES test_sessions(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS operator_actions (
   id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,

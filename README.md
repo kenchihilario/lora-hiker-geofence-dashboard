@@ -15,7 +15,7 @@ Use PHP and MariaDB already included with XAMPP. Keep the server bound to loopba
    & $php tools/setup_db.php --profile=live
    ```
 
-   The schema file has no fixed database name. The setup tool requires the name to match the chosen config profile. Run `& $php tools/migrate_db.php --profile=demo` to apply or verify the nine-migration ledger (001–009); it is safe to rerun. Migration 008 adds ring boundaries to safe zones; migration 009 adds the BENCH source class. LIVE schema migration requires the explicit `--allow-live-schema` switch and is never part of tests.
+   The schema file has no fixed database name. The setup tool requires the name to match the chosen config profile. Run `& $php tools/migrate_db.php --profile=demo` to apply or verify the ten-migration ledger (001–010); it is safe to rerun. Migration 008 adds ring boundaries to safe zones; migration 009 adds the BENCH source class; migration 010 adds site-scoped test sessions and session-bounded sequence identity. LIVE schema migration requires the explicit `--allow-live-schema` switch and is never part of tests.
 3. Start the local app from the project folder:
 
    ```powershell
@@ -35,6 +35,12 @@ From the project folder, double-click `Launch Dashboard.bat` to start the local 
 
 LIVE rejects incoming records marked demo, rehearsal, or `test_mode`; rejection details go to the local ignored `data/rejections.log`. The simulator is DEMO-only. LIVE starts without seeded hikers or a safe zone. Until a polygon is configured, positions stay UNCLASSIFIED and do not raise OFF TRAIL events. In LIVE Settings, turn on **Bench session** before Phase 1 bench trials so new packets, events, and commands are marked BENCH and excluded from research summaries. Turn it off before collecting scored field data. Settings also supports marking a selected site's existing hiker/time range as BENCH after typing `MARK BENCH`; DEMO, REHEARSAL, TEST, and test-mode JSON rows are protected.
 
+## Test sessions
+
+Start a test session in Settings for each run. Enter a label, study phase, phone design (A/B), tester code, and test point. Starting another session closes the previous active session for that site and writes an operator audit record. The bridge sends no session identifier: the dashboard stamps the active site session when it accepts an uplink. The duplicate key is scoped by site, hiker, session, and sequence, so a rebooted counter can restart in a new session without colliding with earlier runs. Packet log and packet CSV rows show the session label, design, tester, and test point.
+
+Ingest now includes the newly queued logical command object in its JSON result while retaining `command_queued`. The DEMO-only simulator consumes that result, calls the existing pending-command route to record `fetched_at`, and then reports `SENT_TO_BASE`; this exercises software timestamps only and does not demonstrate radio delivery or meet any proposal receive-window timing. See `docs/PHASE1_BENCH_WORKFLOW.md`.
+
 ## Tests
 
 Tests that use MariaDB require the active DEMO profile to point to `hiker_dashboard_test_codex`, or use the explicit project-local scratch override used by the scratch harnesses. Tests fail closed in ordinary LIVE mode. Scratch tests create and drop only randomly named `hiker_dashboard_scratch_*` databases. The LIVE first-run integration harness uses an isolated LIVE-mode PHP server whose `live` profile is a scratch database; it never opens `hiker_dashboard_live`.
@@ -43,9 +49,9 @@ To run the complete PHP, Node, and PowerShell suite without touching the configu
 
 The read-only LIVE readiness checklist is available in Settings while LIVE is active and from `& $php tools/live_check.php`. It reports PASS/FAIL for database reachability and table checks, migration checksums, tokens (without displaying them), site and field registry readiness, flagged rows, local-only guard, and latest LIVE backup age. An empty LIVE database is expected to fail the field-setup checks until the operator configures the site.
 
-For existing databases, take a backup before applying pending migrations. Migration 007 adds editable site/node/reference registry fields; migration 008 adds safe-zone ring boundaries. No LIVE database was accessed or migrated for this ring change. A historical readiness note said migration 007 was pending then, but verify the current ledger before acting. After a fresh backup and review, the operator command sequence is `& $php tools/backup_db.php --profile=live`, then `& $php tools/migrate_db.php --profile=live --allow-live-schema`, then `& $php tools/live_check.php`. This changes the selected LIVE schema; never use LIVE for tests.
+For existing databases, take a backup before applying pending migrations. Migration 007 adds editable site/node/reference registry fields; migration 008 adds safe-zone ring boundaries. No LIVE database was accessed or migrated for this ring change. Migration 010 adds server-assigned test sessions. Verify the live ledger before acting; this change was not applied to or tested against LIVE. After a fresh backup and review, the operator command sequence is `& $php tools/backup_db.php --profile=live`, then `& $php tools/migrate_db.php --profile=live --allow-live-schema`, then `& $php tools/live_check.php`. This changes the selected LIVE schema; never use LIVE for tests.
 
-From Settings, register hiker node IDs and phone models, save Base Camp and Checkpoint node records, and add/edit/archive reference markers. Site center and network node coordinates are kept in the selected database. Config coordinates are fallback display references and remain marked `UNSURVEYED`; enter only surveyed/operator-supplied coordinates and mark them verified after confirmation. Archiving disables a row without deleting it. The safe-zone GPX editor stores ordered rings. A closed loop creates an outer and inner boundary so the corridor band is safe and the middle is outside; an open track creates one outline. The configured half-width is the margin on EACH side of the track (5–50 m). For expected GPS error up to 10 m, consider about 15–20 m on the mountain. See `docs/LOOP_CORRIDORS.md`. Existing databases need migrations 008 and 009 for rings and BENCH classification; back up before migration.
+From Settings, register hiker node IDs and phone models, save Base Camp and Checkpoint node records, and add/edit/archive reference markers. Site center and network node coordinates are kept in the selected database. Config coordinates are fallback display references and remain marked `UNSURVEYED`; enter only surveyed/operator-supplied coordinates and mark them verified after confirmation. Archiving disables a row without deleting it. The safe-zone GPX editor stores ordered rings. A closed loop creates an outer and inner boundary so the corridor band is safe and the middle is outside; an open track creates one outline. The configured half-width is the margin on EACH side of the track (5–50 m). For expected GPS error up to 10 m, consider about 15–20 m on the mountain. See `docs/LOOP_CORRIDORS.md`. Existing databases need migrations 008, 009, and 010 for safe-zone rings, BENCH classification, and test sessions; back up before migration.
 
 ```powershell
 $php = 'C:\xampp\php\php.exe'
@@ -91,7 +97,7 @@ Record a GPX track with a phone GPS app while walking the intended corridor, exp
 
 ## Local API and integration boundary
 
-Bridge routes require `X-Bridge-Token` for the active database profile. Operator and settings routes require loopback when `local_only` is true (default); no accounts, sessions, or CSRF protection are implemented. A valid uplink envelope separates `uplink` fields from `reception` metadata. Base ID is written by the receiver into reception logging, never inserted into the uplink. No LoRa packet size, binary format, or USB serial framing is defined here.
+Bridge routes require `X-Bridge-Token` for the active database profile. Operator pages and APIs require the local operator login, a session, and CSRF tokens, in addition to loopback when `local_only` is true (default). Set the local operator password with `& $php tools/set_operator_password.php`; sign in at `/login.php`. Bridge routes continue to use the separate `X-Bridge-Token`. A valid uplink envelope separates `uplink` fields from `reception` metadata. Base ID is written by the receiver into reception logging, never inserted into the uplink. No LoRa packet size, binary format, or USB serial framing is defined here.
 
 ### API endpoints
 

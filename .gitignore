@@ -7,3 +7,4 @@ config.php
 /data/mode.json
 /data/rejections.log
 /backups/
+/data/operator.json

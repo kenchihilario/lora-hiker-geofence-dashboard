@@ -5,7 +5,8 @@ const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'
 // loop corridor, so the middle of the loop is NOT safe. An old single-ring zone is just rings=[[...]].
 let siteId='pup',site=null,zone=null,baseCamp=null,rings=[[]],view={lat0:0,lon0:0,minX:-100,maxX:100,minY:-100,maxY:100},drag=null,gpxSummary='';
 const status=m=>$('#editor-status').textContent=m,siteSelect=$('#site-select'),svg=$('#editor-svg');
-const request=async(path,options={})=>{const r=await fetch(`api/${path}`,{cache:'no-store',...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});const d=await r.json();if(!r.ok)throw Error(d.error||`HTTP ${r.status}`);return d;};
+const csrf=()=>document.cookie.split('; ').find(c=>c.startsWith('TRAILWATCH_CSRF='))?.split('=').slice(1).join('=')||'';
+const request=async(path,options={})=>{const r=await fetch(`api/${path}`,{cache:'no-store',...options,headers:{'Content-Type':'application/json','X-CSRF-Token':csrf(),...(options.headers||{})}});const d=await r.json();if(!r.ok)throw Error(d.error||`HTTP ${r.status}`);return d;};
 const project=p=>({x:(p.longitude-view.lon0)*Math.cos(view.lat0*Math.PI/180)*111320,y:(p.latitude-view.lat0)*110540});
 const screen=p=>{const q=project(p),w=800,h=520,pad=48,s=Math.min((w-2*pad)/(view.maxX-view.minX||1),(h-2*pad)/(view.maxY-view.minY||1));return{x:pad+(q.x-view.minX)*s,y:h-pad-(q.y-view.minY)*s};};
 const hasCoordinates=v=>Number.isFinite(Number(v?.latitude))&&Number.isFinite(Number(v?.longitude))&&v.latitude!=null&&v.longitude!=null&&v.latitude!==''&&v.longitude!=='';
