@@ -14,6 +14,9 @@ function build_live_check_report(array $f): array {
     $add('migrations','Schema migrations current',!empty($f['migrations_current']),$f['migration_detail']??'Migration ledger was not verified.');
     $add('bridge_tokens','Bridge tokens configured and distinct',!empty($f['tokens_ok']),'Demo and LIVE token configuration is '.(!empty($f['tokens_ok'])?'present and distinct.':'missing, placeholder, or not distinct.'));
     $add('site','Selected site',!empty($f['site_id']),!empty($f['site_id'])?'Selected site: '.$f['site_id'].'.':'No valid site is selected.');
+    $sessionActive=!empty($f['active_test_session']);
+    $sessionDetail=$sessionActive?'Active test session: '.($f['active_test_session']['label']??'label unavailable').'.':'No active test session for the selected site; bridge uplinks will be rejected with HTTP 409.';
+    $add('test_session','Active test session',$sessionActive,$sessionDetail);
     $add('hikers','Hiker registry',(int)($f['hiker_count']??0)>0,(int)($f['hiker_count']??0).' enabled hiker(s) registered.');
     $scoped=!array_key_exists('node_site_scoped',$f)||!empty($f['node_site_scoped']);
     $nodeOk=$scoped&&!empty($f['base_present'])&&!empty($f['base_located'])&&!empty($f['checkpoint_present'])&&!empty($f['checkpoint_located']);
@@ -28,7 +31,7 @@ function build_live_check_report(array $f): array {
 }
 
 function collect_live_check_facts(PDO $pdo,array $config,string $projectRoot): array {
-    $facts=['database_reachable'=>false,'integrity_ok'=>false,'integrity_detail'=>'No table checks completed.','migrations_current'=>false,'migration_detail'=>'Migration ledger was not verified.','tokens_ok'=>false,'site_id'=>null,'hiker_count'=>0,'base_present'=>false,'base_located'=>false,'checkpoint_present'=>false,'checkpoint_located'=>false,'safe_zone_active'=>false,'flagged_rows'=>-1,'local_guard'=>!empty($config['local_only']),'backup_age_seconds'=>null,'database_name'=>null];
+    $facts=['database_reachable'=>false,'integrity_ok'=>false,'integrity_detail'=>'No table checks completed.','migrations_current'=>false,'migration_detail'=>'Migration ledger was not verified.','tokens_ok'=>false,'site_id'=>null,'active_test_session'=>false,'hiker_count'=>0,'base_present'=>false,'base_located'=>false,'checkpoint_present'=>false,'checkpoint_located'=>false,'safe_zone_active'=>false,'flagged_rows'=>-1,'local_guard'=>!empty($config['local_only']),'backup_age_seconds'=>null,'database_name'=>null];
     $pdo->query('SELECT 1')->fetchColumn();$facts['database_reachable']=true;
     $profile=$config['db_profiles']['live']??[];$facts['database_name']=$profile['db_name']??null;
     $demoToken=(string)($config['bridge_tokens']['demo']??'');$liveToken=(string)($config['bridge_tokens']['live']??'');
@@ -50,6 +53,7 @@ function collect_live_check_facts(PDO $pdo,array $config,string $projectRoot): a
     $facts['migration_detail']=$missing?'Missing or checksum-mismatched: '.implode(', ',$missing):'Recorded '.count($expected).' migration(s), all checksums match.';
 
     $q=$pdo->prepare("SELECT setting_value FROM app_settings WHERE setting_key='selected_site'");$q->execute();$site=(string)($q->fetchColumn()?:'');$facts['site_id']=isset(site_config()[$site])?$site:null;
+    if($facts['site_id']&&test_session_schema_available($pdo))$facts['active_test_session']=active_test_session($pdo,$site)?:false;
     $q=$pdo->prepare('SELECT COUNT(*) FROM hiker_nodes WHERE is_enabled=1');$facts['hiker_count']=(int)$q->fetchColumn();
     $facts['node_site_scoped']=schema_column_exists($pdo,'network_nodes','site_id');
     foreach(['BASE_CAMP'=>'base','CHECKPOINT'=>'checkpoint'] as $type=>$prefix){$sql='SELECT COUNT(*),COALESCE(SUM(latitude IS NOT NULL AND longitude IS NOT NULL),0) FROM network_nodes WHERE node_type=? AND is_enabled=1'.($facts['node_site_scoped']?' AND site_id=?':'');$q=$pdo->prepare($sql);$q->execute($facts['node_site_scoped']?[$type,$site]:[$type]);[$count,$located]=$q->fetch(PDO::FETCH_NUM);$facts[$prefix.'_present']=(int)$count>0;$facts[$prefix.'_located']=(int)$located>0;}
