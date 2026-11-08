@@ -5,6 +5,7 @@ config.php
 
 .runtime/
 /data/mode.json
+/data/operator.json
 /data/rejections.log
 /backups/
 /data/operator.json

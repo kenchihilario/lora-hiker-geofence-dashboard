@@ -21,8 +21,8 @@ function source_label(array $r,?string $mode=null): string { $mode=$mode??active
 function research_flags_eligible_sql(string $alias): string {
     return "$alias.is_demo=0 AND $alias.is_rehearsal=0 AND $alias.test_mode=0 AND $alias.is_bench=0";
 }
-function bench_session_enabled(PDO $pdo): bool {
-    $q=$pdo->prepare("SELECT setting_value FROM app_settings WHERE setting_key='bench_session_enabled'");$q->execute();return (string)$q->fetchColumn()==='1';
+function bench_session_enabled(PDO $pdo,bool $forUpdate=false): bool {
+    $sql="SELECT setting_value FROM app_settings WHERE setting_key='bench_session_enabled'".($forUpdate?' FOR UPDATE':'');$q=$pdo->prepare($sql);$q->execute();return (string)$q->fetchColumn()==='1';
 }
 function mark_packet_range_bench(PDO $pdo,array $data): array {
     if(array_diff(array_keys($data),['site_id','node_id','from','to','confirmation']))throw new InvalidArgumentException('range request contains an unsupported field');
@@ -213,7 +213,7 @@ function ingest_packet(PDO $pdo,array $d,bool $dryRun=false): array {
     if($sats!==null&&(filter_var($sats,FILTER_VALIDATE_INT)===false||(int)$sats<0||(int)$sats>255))throw new InvalidArgumentException('satellite_count must be 0–255 or null');
     if($battery!==null&&(filter_var($battery,FILTER_VALIDATE_INT)===false||(int)$battery<0||(int)$battery>100))throw new InvalidArgumentException('battery_level must be 0–100 or null');
     $rawFlags=$u['flags'];if(!is_array($rawFlags))throw new InvalidArgumentException('uplink.flags must be an object');$flagNames=['link_lost','low_battery','emergency','turn_back_received','test_mode'];if(array_diff(array_keys($rawFlags),$flagNames))throw new InvalidArgumentException('uplink.flags contains an unsupported flag');$flags=[];foreach($flagNames as $f)$flags[$f]=flag_bool($rawFlags[$f]??false,$f);$test=$flags['test_mode'];
-    $siteId=selected_site($pdo);$siteFlags=site_record_flags($siteId);$demo=(active_mode()==='DEMO'||!empty($d['is_demo'])||$test||$siteFlags['is_demo'])?1:0;$rehearsal=(!empty($d['is_rehearsal'])||$siteFlags['is_rehearsal'])?1:0;$bench=(active_mode()==='LIVE'&&bench_session_enabled($pdo))?1:0;
+    $siteId=selected_site($pdo);$siteFlags=site_record_flags($siteId);$demo=(active_mode()==='DEMO'||!empty($d['is_demo'])||$test||$siteFlags['is_demo'])?1:0;$rehearsal=(!empty($d['is_rehearsal'])||$siteFlags['is_rehearsal'])?1:0;$bench=0;
     $baseId=trim((string)$r['base_id']);if(!valid_node_code($pdo,$baseId,'BASE_CAMP',$siteId))throw new InvalidArgumentException('reception.base_id must identify an enabled Base Camp Node');
     $path=$r['path_type'];if(!in_array($path,['DIRECT','CHECKPOINT_RELAY'],true))throw new InvalidArgumentException('reception.path_type must be DIRECT or CHECKPOINT_RELAY');
     $checkpointId=null;$checkpointRssi=null;if($path==='CHECKPOINT_RELAY'){$checkpointId=trim((string)($r['checkpoint_id']??''));if(!valid_node_code($pdo,$checkpointId,'CHECKPOINT',$siteId))throw new InvalidArgumentException('checkpoint_id must identify an enabled Checkpoint Node');$checkpointRssi=$r['checkpoint_rssi_dbm']??null;if(filter_var($checkpointRssi,FILTER_VALIDATE_INT)===false||(int)$checkpointRssi< -200||(int)$checkpointRssi>100)throw new InvalidArgumentException('checkpoint_rssi_dbm must be -200–100');}elseif(isset($r['checkpoint_id'])||isset($r['checkpoint_rssi_dbm']))throw new InvalidArgumentException('direct reception cannot carry checkpoint relay fields');
@@ -222,6 +222,7 @@ function ingest_packet(PDO $pdo,array $d,bool $dryRun=false): array {
     $h=$pdo->prepare('SELECT id FROM hiker_nodes WHERE node_id=? AND is_enabled=1');$h->execute([$id]);$hiker=$h->fetchColumn();if(!$hiker)throw new InvalidArgumentException('unknown or disabled hiker node_id');
     $zone=active_zone($pdo,$siteId);$inside=$zone?point_in_polygon($lat,$lng,array_map(fn($ring)=>array_map(fn($v)=>[$v['latitude'],$v['longitude']],$ring),$zone['rings'])):null;
     $pdo->beginTransaction();try{
+      $bench=(active_mode()==='LIVE'&&bench_session_enabled($pdo,true))?1:0;
       $sessionSchema=test_session_schema_available($pdo);$sessionId=null;
       if($sessionSchema){$siteLock=$pdo->prepare("SELECT setting_value FROM app_settings WHERE setting_key='selected_site' FOR UPDATE");$siteLock->execute();$session=active_test_session($pdo,$siteId);if(!$session)throw new TestSessionRequiredException('No active test session for this site. Start a test session in Settings before ingesting uplinks.');$sessionId=(int)$session['id'];}
       $dedupeSql=$sessionSchema?'SELECT id FROM uplink_packets WHERE site_id=? AND hiker_node_id=? AND sequence_number=? AND session_id <=> ? ORDER BY id DESC LIMIT 1':'SELECT id FROM uplink_packets WHERE site_id=? AND hiker_node_id=? AND sequence_number=? ORDER BY id DESC LIMIT 1';$q=$pdo->prepare($dedupeSql);$q->execute($sessionSchema?[$siteId,$hiker,(int)$seq,$sessionId]:[$siteId,$hiker,(int)$seq]);$existing=$q->fetchColumn();$duplicate=(bool)$existing;

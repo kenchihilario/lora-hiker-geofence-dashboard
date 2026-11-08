@@ -4,9 +4,10 @@ const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'
 // A safe zone is a list of rings. rings[0] is the outer edge; rings[1] (optional) is the inner edge of a
 // loop corridor, so the middle of the loop is NOT safe. An old single-ring zone is just rings=[[...]].
 let siteId='pup',site=null,zone=null,baseCamp=null,rings=[[]],view={lat0:0,lon0:0,minX:-100,maxX:100,minY:-100,maxY:100},drag=null,gpxSummary='';
-const status=m=>$('#editor-status').textContent=m,siteSelect=$('#site-select'),svg=$('#editor-svg');
+const status=m=>{const el=$('#editor-status');el.textContent=m;el.classList.toggle('is-loading',m==='Loading site and active polygon…');},siteSelect=$('#site-select'),svg=$('#editor-svg');
 const csrf=()=>document.cookie.split('; ').find(c=>c.startsWith('TRAILWATCH_CSRF='))?.split('=').slice(1).join('=')||'';
-const request=async(path,options={})=>{const r=await fetch(`api/${path}`,{cache:'no-store',...options,headers:{'Content-Type':'application/json','X-CSRF-Token':csrf(),...(options.headers||{})}});const d=await r.json();if(!r.ok)throw Error(d.error||`HTTP ${r.status}`);return d;};
+const logout=()=>{const host=document.querySelector('.editor-head');if(!host||host.querySelector('.operator-logout'))return;const form=document.createElement('form');form.className='operator-logout';form.method='post';form.action='logout.php';form.innerHTML=`<input type="hidden" name="csrf_token" value="${csrf()}"><button type="submit">Sign out</button>`;host.append(form);};logout();
+const request=async(path,options={})=>{const r=await fetch(`api/${path}`,{cache:'no-store',...options,headers:{'Content-Type':'application/json','X-CSRF-Token':csrf(),...(options.headers||{})}});const d=await r.json();if(r.status===401){location.href='login.php';throw Error(d.error||'Sign in again');}if(!r.ok)throw Error(d.error||`HTTP ${r.status}`);return d;};
 const project=p=>({x:(p.longitude-view.lon0)*Math.cos(view.lat0*Math.PI/180)*111320,y:(p.latitude-view.lat0)*110540});
 const screen=p=>{const q=project(p),w=800,h=520,pad=48,s=Math.min((w-2*pad)/(view.maxX-view.minX||1),(h-2*pad)/(view.maxY-view.minY||1));return{x:pad+(q.x-view.minX)*s,y:h-pad-(q.y-view.minY)*s};};
 const hasCoordinates=v=>Number.isFinite(Number(v?.latitude))&&Number.isFinite(Number(v?.longitude))&&v.latitude!=null&&v.longitude!=null&&v.latitude!==''&&v.longitude!=='';
@@ -25,6 +26,7 @@ function fit(){
 }
 function renderMap(){
   fit();
+  $('#editor-map-empty').hidden=allVertices().some(hasCoordinates);
   const grid=$('#editor-grid');grid.innerHTML='';
   const w=800,h=520,step=10**Math.floor(Math.log10(Math.max(view.maxX-view.minX,view.maxY-view.minY)/5||1));
   let lines='';
@@ -40,7 +42,8 @@ function renderMap(){
 }
 function render(){renderMap();rows();}
 function rows(){
-  $('#vertex-rows').innerHTML=rings.flatMap((ring,r)=>ring.map((v,i)=>`<tr><td>${label(r,i)}</td><td><input type="number" step="0.0000001" data-r="${r}" data-i="${i}" data-key="latitude" value="${v.latitude}"></td><td><input type="number" step="0.0000001" data-r="${r}" data-i="${i}" data-key="longitude" value="${v.longitude}"></td><td><button type="button" data-delete-r="${r}" data-delete="${i}" aria-label="Delete vertex ${label(r,i)}">×</button></td></tr>`)).join('');
+  const rows=rings.flatMap((ring,r)=>ring.map((v,i)=>`<tr><td>${label(r,i)}</td><td><input type="number" step="0.0000001" data-r="${r}" data-i="${i}" data-key="latitude" value="${v.latitude}"></td><td><input type="number" step="0.0000001" data-r="${r}" data-i="${i}" data-key="longitude" value="${v.longitude}"></td><td><button type="button" data-delete-r="${r}" data-delete="${i}" aria-label="Delete vertex ${label(r,i)}">×</button></td></tr>`)).join('');
+  $('#vertex-rows').innerHTML=rows||'<tr><td class="empty" colspan="4">No vertices yet</td></tr>';
 }
 const validate=()=>TrailGeometry.validateRings(rings);
 

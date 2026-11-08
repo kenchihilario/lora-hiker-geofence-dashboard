@@ -1,8 +1,8 @@
 # Trailwatch Dashboard — Project Status
 
 **Reviewed:** 2026-11-07
-**Project:** `D:\Projects for PC\Dashboard`
-**Branch:** `codex/session-scoped-ingest` (based on `main`; changes are uncommitted)
+**Project:** `D:\Projects for PC\Thesis\Dashboard`
+**Branch:** `codex/session-fix-merge` (merge in progress; changes are uncommitted)
 **Scope:** Dashboard, PHP API/backend, MariaDB schema/migrations, local tooling, and dashboard-relevant research proposal requirements. This report is based on the current checked-out source and test runner; it does not claim the hardware has been tested. No credentials or tokens are included.
 
 ## Status labels
@@ -125,7 +125,8 @@ Configured site data (`config/sites.php:4-42`):
 | Command created/fetched/sent timing | **IMPLEMENTED AND TESTED** | Timestamps and elapsed milliseconds are logged/exposed; does not measure radio/hiker arrival (`src/Services/ApiService.php:64-73`; bridge API and packet log). |
 | Storm repetition and Phase 2 switch-off | **IMPLEMENTED AND TESTED** | Campaign state/repetition/cancel plus Phase 2 behavior; tests exercise them (`public/api/index.php:94-101`; `tests/api_smoke.php:52-58,71-74`). |
 | Sheet 1 / Sheet 4 dashboard data | **PARTIAL** | Available packet, reception, position, command timing and event exports exist (`public/api/index.php` CSV route). Wrong-node observation and actual hiker receive windows/phone warning timing remain manual; no device receipt measurement. |
-| Session-scoped sequence identity | **IMPLEMENTED AND TESTED** | Migration 010 adds sessions to packets, receptions, commands, and events; dedupe compares site, hiker, sequence, and the server-stamped active session. Settings can start and audit sessions; packet logs and CSV expose session metadata (`sql/migrations/010_test_sessions.sql`; `tests/test_sessions_scratch_test.php`). |
+| Session-scoped sequence identity | **IMPLEMENTED AND TESTED** | Migration 010 adds sessions to packets, receptions, commands, and events; dedupe compares site, hiker, sequence, and the server-stamped active session. Settings can start and audit sessions; packet log and CSV expose session phase and metadata (`sql/migrations/010_test_sessions.sql`; `tests/test_sessions_scratch_test.php`). |
+| BENCH session phase and warnings | **IMPLEMENTED AND TESTED** | `BENCH` is a fourth `test_sessions.phase` value; the distinct `app_settings.phase_mode` is not synchronized. Settings warns on mismatch and, in LIVE, warns when starting BENCH/PHASE1 while Bench session is OFF. These warnings do not block starting a session (`public/api/index.php`; `public/settings.php`; `public/assets/js/site-settings.js`; session tests). |
 | Immediate command in ingest result | **IMPLEMENTED AND TESTED** | Non-dry-run ingest includes the created command object; simulator fetches it and reports SENT_TO_BASE to exercise lifecycle timestamps (`src/Services/ApiService.php`; `tools/simulate_hikers.php`; `tests/simulator_reply_lifecycle_test.php`). |
 | Research classification of bench packets | **IMPLEMENTED AND TESTED** | LIVE Bench session and manual range marking set BENCH; packet/event/command summary counts exclude it; labels appear in packet log and CSV (`sql/migrations/009_bench_classification.sql`; `tests/bench_scratch_test.php`; `tests/research_summary_test.php`). |
 
@@ -133,14 +134,14 @@ The proposal DOCX is not modified by this project work. Table 8 physical sizes a
 
 ## 8. Tests and verification
 
-**IMPLEMENTED AND TESTED — latest scratch suite.** `tests/run_scratch_suite.php` completed successfully after BENCH support: 247 PASS-prefixed output lines and zero FAIL lines. The suite ran PHP, Node, and PowerShell tests against disposable scratch databases, which it dropped (`tests/run_scratch_suite.php:17-31`). No configured test DB or LIVE database was used.
+**IMPLEMENTED AND TESTED — latest scratch suite (2026-11-07).** `php tests/run_scratch_suite.php` completed with **308 PASS lines and 0 FAIL lines**. It creates and drops disposable scratch databases; the isolated LIVE-mode integration uses only a scratch `live` profile, never `hiker_dashboard_live` (`tests/run_scratch_suite.php`). Migration 010's pre-migration compatibility, session migration and idempotence checks passed inside this run.
 
 Included test files cover:
 
 - PHP logic: `geofence_test.php`, `polygon_validation_test.php`, `research_summary_test.php`, `mode_safety_test.php`, `live_check_test.php`, `registry_service_test.php`.
 - DB safety/isolated behavior: `clear_demo_scratch_test.php`, `live_schema_scratch_test.php`, `migration_scratch_test.php`, `bench_scratch_test.php`, `live_first_run_scratch_test.php`.
-- API and pages: `api_smoke.php`, `site_safe_zone_smoke.ps1`.
-- Browser logic/static contracts: `gpx_corridor_test.js`, `gpx_ring_test.js`, `dashboard_map_labels_test.js`, `dashboard_packet_log_contract_test.js`, `live_empty_dashboard_test.js`, `offline_static_test.js`.
+- API and pages: `api_smoke.php`, `test_sessions_scratch_test.php`, `simulator_reply_lifecycle_test.php`, `site_safe_zone_smoke.ps1`.
+- Browser logic/static contracts: `gpx_corridor_test.js`, `gpx_ring_test.js`, `bench_time_test.js`, `dashboard_map_labels_test.js`, `dashboard_packet_log_contract_test.js`, `live_empty_dashboard_test.js`, `session_ui_contract_test.js`, `offline_static_test.js`.
 - Ring persistence/geofence integration: `ring_zone_scratch_test.php` creates and drops its own ring and pre-008 scratch databases.
 
 The suite creates/drops scratch databases and launches only loopback test servers. Actual LIVE database integrity/migration state was not queried during this review. Use `docs/LIVE_FIRST_RUN.md` for the read-only readiness workflow; back up before any schema migration.

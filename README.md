@@ -37,7 +37,9 @@ LIVE rejects incoming records marked demo, rehearsal, or `test_mode`; rejection 
 
 ## Test sessions
 
-Start a test session in Settings for each run. Enter a label, study phase, phone design (A/B), tester code, and test point. Starting another session closes the previous active session for that site and writes an operator audit record. The bridge sends no session identifier: the dashboard stamps the active site session when it accepts an uplink. The duplicate key is scoped by site, hiker, session, and sequence, so a rebooted counter can restart in a new session without colliding with earlier runs. Packet log and packet CSV rows show the session label, design, tester, and test point.
+Start a test session in Settings for each run. Enter a label, study phase, phone design (A/B), tester code, and test point. Starting another session closes the previous active session for that site and writes an operator audit record. The bridge sends no session identifier: the dashboard stamps the active site session when it accepts an uplink. The duplicate key is scoped by site, hiker, session, and sequence, so a rebooted counter can restart in a new session without colliding with earlier runs. Packet log and packet CSV rows show the session label, phase, design, tester, and test point.
+
+Session phase is a per-run label (`PHASE1`, `PHASE2`, `PHASE3`, `BENCH`, or empty). The separate Settings `phase_mode` controls storm-campaign behavior; changing one does not change the other. Settings warns when the selected/active session phase differs from `phase_mode`. In LIVE, it also warns after starting a `BENCH` or `PHASE1` session when the Bench session switch is OFF. These warnings do not block session creation.
 
 Ingest now includes the newly queued logical command object in its JSON result while retaining `command_queued`. The DEMO-only simulator consumes that result, calls the existing pending-command route to record `fetched_at`, and then reports `SENT_TO_BASE`; this exercises software timestamps only and does not demonstrate radio delivery or meet any proposal receive-window timing. See `docs/PHASE1_BENCH_WORKFLOW.md`.
 

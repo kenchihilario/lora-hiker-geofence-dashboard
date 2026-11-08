@@ -3,6 +3,8 @@
 // and forwards each decoded uplink). Until the hardware exists, use tools/mock_hike.php instead.
 // POST fields: token, hiker_id, lat, lng, heard_by
 require_once __DIR__ . '/../src/report.php';
+require_once __DIR__ . '/../src/db.php';
+require_local_operator();
 header('Content-Type: application/json');
 if (active_mode() === 'LIVE') { http_response_code(403); echo json_encode(['error'=>'legacy ingest is disabled in LIVE mode']); exit; }
 

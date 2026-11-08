@@ -27,4 +27,6 @@ $api=file_get_contents($root.'/public/api/index.php');$rejectAt=strpos($api,'sho
 check_mode($rejectAt!==false&&$connectAt!==false&&$rejectAt<$connectAt&&str_contains($api,'rejections.log'),'LIVE flagged ingest is logged and rejected before the DB connection/write branch');
 $clearGuard=strpos($api,"!clear_demo_allowed(active_mode())");$normalDbOpen=strpos($api,'$pdo=db();',strpos($api,"!clear_demo_allowed(active_mode())"));
 check_mode($clearGuard!==false&&$normalDbOpen!==false&&$clearGuard<$normalDbOpen,'LIVE clear-demo refusal occurs before opening a database connection');
+$service=file_get_contents($root.'/src/Services/ApiService.php');$ingestAt=strpos($service,'function ingest_packet(');$ingestCode=$ingestAt===false?'':substr($service,$ingestAt);$transactionAt=strpos($ingestCode,'$pdo->beginTransaction();try{');$benchLockAt=strpos($ingestCode,'bench_session_enabled($pdo,true)');
+check_mode(str_contains($service,"' FOR UPDATE'")&&$transactionAt!==false&&$benchLockAt!==false&&$benchLockAt>$transactionAt,'LIVE ingest reads and locks the Bench switch inside its packet transaction');
 echo "Mode safety and static live-schema checks complete.\n";

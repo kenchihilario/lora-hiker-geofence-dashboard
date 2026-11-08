@@ -21,5 +21,9 @@ check(settings.includes('startButton.disabled=!data.session_schema_available'), 
 check(/id="no-active-session"/.test(index), 'dashboard markup has a no-active-session banner');
 check(/last reported[^`]*heartbeat/.test(dashboard), 'bridge tile wording distinguishes reported state from heartbeat age');
 check(/id="test-session-active"/.test(markup), 'Settings has an existing status element for session errors and success details');
+check(/<option value="BENCH">BENCH · Bench session<\/option>/.test(markup), 'Settings offers BENCH as a session phase');
+check(settings.includes('differs from dashboard phase') && settings.includes('phaseLabel(phaseMode)'), 'session phase mismatch warning names both phase values');
+check(settings.includes('Bench session switch is OFF') && settings.includes("activeMode==='LIVE'"), 'LIVE bench switch warning is non-blocking and phase-aware');
+check(settings.includes("value==='BENCH'?'BENCH'") && dashboard.includes('p.session_phase'), 'BENCH phase is formatted and exposed in packet rows');
 
 console.log('PASS session UI state, error, and safety copy contract');
