@@ -51,6 +51,15 @@ CREATE TABLE IF NOT EXISTS safe_zones (
   is_active TINYINT(1) NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   created_by VARCHAR(100) NULL,
+  margin_m DECIMAL(7,2) NULL,
+  gpx_file_name VARCHAR(255) NULL,
+  gpx_point_count INT UNSIGNED NULL,
+  simplified_point_count INT UNSIGNED NULL,
+  simplify_tolerance_m DECIMAL(9,3) NULL,
+  simplify_max_deviation_m DECIMAL(9,3) NULL,
+  recorded_track_length_m DECIMAL(12,2) NULL,
+  ground_length_m DECIMAL(12,2) NULL,
+  recording_note TEXT NULL,
   UNIQUE KEY uq_zone_site_version(site_id,version), KEY ix_zone_active(site_id,is_active, id)
 ) ENGINE=InnoDB;
 CREATE TABLE IF NOT EXISTS app_settings (

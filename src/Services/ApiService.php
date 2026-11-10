@@ -17,6 +17,40 @@ function demo_row_count(PDO $pdo): int {
     $sum=0;$filters=['uplink_packets'=>'is_demo=1 OR is_rehearsal=1 OR test_mode=1','system_events'=>'is_demo=1 OR is_rehearsal=1 OR test_mode=1','downlink_commands'=>'is_demo=1 OR is_rehearsal=1 OR test_mode=1','packet_receptions'=>'is_demo=1 OR is_rehearsal=1 OR test_mode=1','safe_zones'=>'is_demo=1 OR is_rehearsal=1','storm_turnback_campaigns'=>'is_demo=1 OR is_rehearsal=1 OR test_mode=1','operator_actions'=>'is_demo=1 OR is_rehearsal=1 OR test_mode=1','trail_reference_points'=>'is_demo=1'];foreach($filters as $table=>$where)$sum+=(int)$pdo->query("SELECT COUNT(*) FROM $table WHERE $where")->fetchColumn();return $sum;
 }
 function gps_valid_fix($accuracy,$satellites): bool { return $accuracy!==null&&$satellites!==null&&is_numeric($accuracy)&&(float)$accuracy<=10&&(int)$satellites>=5; }
+final class SafeZoneLoopGuardException extends InvalidArgumentException {}
+function safe_zone_inner_probe(array $ring): ?array {
+    if(count($ring)<3)return null;
+    $lat0=array_sum(array_map(fn($p)=>(float)$p[0],$ring))/count($ring);$lon0=array_sum(array_map(fn($p)=>(float)$p[1],$ring))/count($ring);$cos=cos(deg2rad($lat0));
+    $xy=array_map(fn($p)=>['x'=>((float)$p[1]-$lon0)*$cos*111320,'y'=>((float)$p[0]-$lat0)*110540],$ring);
+    $ys=array_values(array_unique(array_column($xy,'y'),SORT_REGULAR));sort($ys,SORT_NUMERIC);
+    for($band=0;$band<count($ys)-1;$band++){
+        if($ys[$band+1]-$ys[$band]<1e-9)continue;$y=($ys[$band]+$ys[$band+1])/2;$xs=[];$n=count($xy);
+        for($i=0,$j=$n-1;$i<$n;$j=$i++){$a=$xy[$j];$b=$xy[$i];if(($a['y']>$y)!==($b['y']>$y))$xs[]=$a['x']+($y-$a['y'])*($b['x']-$a['x'])/($b['y']-$a['y']);}
+        sort($xs,SORT_NUMERIC);
+        for($i=0;$i+1<count($xs);$i+=2){if($xs[$i+1]-$xs[$i]<1e-7)continue;$x=($xs[$i]+$xs[$i+1])/2;return['latitude'=>$lat0+$y/110540,'longitude'=>$lon0+$x/($cos*111320)];}
+    }
+    return null;
+}
+function safe_zone_inner_point_is_hole(array $rings,array $point,?callable $classifier=null): bool {
+    if(count($rings)!==2||!isset($point['latitude'],$point['longitude']))return false;
+    $classify=$classifier??'point_in_polygon';$lat=(float)$point['latitude'];$lng=(float)$point['longitude'];
+    return $classify($lat,$lng,[$rings[1]])&&!$classify($lat,$lng,$rings);
+}
+function validate_safe_zone_loop_guard(array $rings,?callable $classifier=null): void {
+    if(count($rings)!==2)return;$probe=safe_zone_inner_probe($rings[1]);
+    if($probe===null||!safe_zone_inner_point_is_hole($rings,$probe,$classifier))throw new SafeZoneLoopGuardException('Loop corridor failed the inner-ring geofence check; the middle must classify OUTSIDE. No safe-zone version was saved.');
+}
+function safe_zone_metadata_values(array $data): array {
+    $out=['margin_m'=>null,'gpx_file_name'=>null,'gpx_point_count'=>null,'simplified_point_count'=>null,'simplify_tolerance_m'=>null,'simplify_max_deviation_m'=>null,'recorded_track_length_m'=>null,'ground_length_m'=>null,'recording_note'=>null];
+    $file=$data['gpx_file_name']??null;if($file!==null){if(!is_string($file))throw new InvalidArgumentException('gpx_file_name must be text or null');$file=trim($file);if($file===''||strlen($file)>255)throw new InvalidArgumentException('gpx_file_name must be 1–255 characters or null');}$out['gpx_file_name']=$file;
+    foreach(['gpx_point_count','simplified_point_count'] as $key){$value=$data[$key]??null;if($value!==null){if(!(is_int($value)||(is_string($value)&&preg_match('/^\d+$/',$value)))||(float)$value>4294967295)throw new InvalidArgumentException("$key must be a non-negative integer or null");$value=(int)$value;}$out[$key]=$value;}
+    $bounds=['margin_m'=>99999.99,'simplify_tolerance_m'=>999999.999,'simplify_max_deviation_m'=>999999.999,'recorded_track_length_m'=>9999999999.99,'ground_length_m'=>9999999999.99];
+    foreach($bounds as $key=>$max){$value=$data[$key]??null;if($value!==null){if(!is_numeric($value)||!is_finite((float)$value)||(float)$value<0||(float)$value>$max)throw new InvalidArgumentException("$key must be a non-negative number in range or null");$value=(float)$value;} $out[$key]=$value;}
+    $hasGpxSource=$file!==null;foreach(['gpx_point_count','simplified_point_count','simplify_tolerance_m','simplify_max_deviation_m','recorded_track_length_m'] as $key)$hasGpxSource=$hasGpxSource||$out[$key]!==null;
+    if($hasGpxSource&&($out['margin_m']===null||$out['margin_m']<5||$out['margin_m']>50))throw new InvalidArgumentException('margin_m must be from 5 to 50 when GPX source metadata is provided');
+    $note=$data['recording_note']??null;if($note!==null){if(!is_string($note)||strlen($note)>65535)throw new InvalidArgumentException('recording_note must be text up to 65535 bytes or null');}$out['recording_note']=$note;
+    return $out;
+}
 function source_label(array $r,?string $mode=null): string { $mode=$mode??active_mode();return !empty($r['is_rehearsal'])?'REHEARSAL':(!empty($r['test_mode'])?'TEST':(!empty($r['is_demo'])?'DEMO':(!empty($r['is_bench'])?'BENCH':($mode==='DEMO'?'DEMO':'REAL')))); }
 function research_flags_eligible_sql(string $alias): string {
     return "$alias.is_demo=0 AND $alias.is_rehearsal=0 AND $alias.test_mode=0 AND $alias.is_bench=0";
@@ -108,7 +142,9 @@ function site_record_flags(string $siteId): array {
 }
 function active_zone(PDO $pdo, ?string $siteId=null): ?array {
     $siteId=$siteId??selected_site($pdo);
-    $q=$pdo->prepare('SELECT id,name,version,site_id,is_demo,is_rehearsal,created_at FROM safe_zones WHERE is_active=1 AND site_id=? ORDER BY version DESC LIMIT 1');$q->execute([$siteId]);$z=$q->fetch();
+    $metadata=['margin_m','gpx_file_name','gpx_point_count','simplified_point_count','simplify_tolerance_m','simplify_max_deviation_m','recorded_track_length_m','ground_length_m','recording_note'];$select=[];
+    foreach($metadata as $column)$select[]=schema_column_exists($pdo,'safe_zones',$column)?$column:"NULL AS $column";
+    $q=$pdo->prepare('SELECT id,name,version,site_id,is_demo,is_rehearsal,created_at,'.implode(',',$select).' FROM safe_zones WHERE is_active=1 AND site_id=? ORDER BY version DESC LIMIT 1');$q->execute([$siteId]);$z=$q->fetch();
     if (!$z) return null;
     $hasRing=schema_column_exists($pdo,'safe_zone_vertices','ring_index');
     $q=$pdo->prepare('SELECT '.($hasRing?'ring_index':'0 AS ring_index').',latitude,longitude FROM safe_zone_vertices WHERE safe_zone_id=? ORDER BY '.($hasRing?'ring_index,':'').'vertex_order');$q->execute([$z['id']]);
@@ -117,13 +153,18 @@ function active_zone(PDO $pdo, ?string $siteId=null): ?array {
     ksort($byRing);
     $z['rings']=array_values($byRing);          // [outer, inner?]  inner = hole (middle of a loop trail)
     $z['vertices']=$z['rings'][0]??[];          // kept for older consumers: the OUTER ring only
+    foreach(['margin_m','simplify_tolerance_m','simplify_max_deviation_m','recorded_track_length_m','ground_length_m'] as $column)$z[$column]=$z[$column]===null?null:(float)$z[$column];
+    foreach(['gpx_point_count','simplified_point_count'] as $column)$z[$column]=$z[$column]===null?null:(int)$z[$column];
+    $z['corridor_width_m']=$z['margin_m']===null?null:round(2*$z['margin_m'],2);
+    $z['recorded_minus_ground_difference_m']=$z['recorded_track_length_m']===null||$z['ground_length_m']===null?null:round($z['recorded_track_length_m']-$z['ground_length_m'],2);
     return $z;
 }
-function save_zone(PDO $pdo,array $data): array {
+function save_zone(PDO $pdo,array $data,?callable $loopClassifier=null): array {
     $siteId=(string)($data['site_id']??selected_site($pdo));if(!isset(site_config()[$siteId]))throw new InvalidArgumentException('unknown site_id');
     $name=trim((string)($data['name']??''));$createdBy=trim((string)($data['created_by']??'local-operator'));
     if($name===''||strlen($name)>100)throw new InvalidArgumentException('name must be 1–100 characters');
     if($createdBy===''||strlen($createdBy)>100)throw new InvalidArgumentException('created_by must be 1–100 characters');
+    $metadata=safe_zone_metadata_values($data);
     if(array_key_exists('rings',$data)){
         $rawRings=$data['rings'];
         if(!is_array($rawRings)||count($rawRings)<1||count($rawRings)>2)throw new InvalidArgumentException('rings must contain 1 or 2 rings (outer edge, optional inner edge)');
@@ -145,14 +186,18 @@ function save_zone(PDO $pdo,array $data): array {
     if(count($clean)===2){
         if(rings_cross($clean[0],$clean[1]))throw new InvalidArgumentException('inner and outer edges cross; use a smaller corridor half-width');
         if(!point_in_polygon($clean[1][0][0],$clean[1][0][1],$clean[0]))throw new InvalidArgumentException('inner ring must lie inside the outer ring');
+        validate_safe_zone_loop_guard($clean,$loopClassifier);
     }
     $hasRing=schema_column_exists($pdo,'safe_zone_vertices','ring_index');
     if(count($clean)>1&&!$hasRing)throw new InvalidArgumentException('database migration 008 (safe_zone_vertices.ring_index) must be applied before saving a loop corridor');
+    $metadataColumns=array_keys($metadata);$hasMetadata=true;foreach($metadataColumns as $column)$hasMetadata=$hasMetadata&&schema_column_exists($pdo,'safe_zones',$column);
+    if(!$hasMetadata&&count(array_filter($metadata,fn($v)=>$v!==null))>0)throw new InvalidArgumentException('database migration 011 (safe-zone version metadata) must be applied before saving metadata');
     $flags=site_record_flags($siteId);if(isset($data['is_demo'])&&!is_bool($data['is_demo']))throw new InvalidArgumentException('is_demo must be boolean');if(!empty($data['is_demo']))$flags['is_demo']=1;
     $pdo->beginTransaction();try{
         $q=$pdo->prepare('SELECT COALESCE(MAX(version),0)+1 FROM safe_zones WHERE site_id=?');$q->execute([$siteId]);$version=(int)$q->fetchColumn();
         $q=$pdo->prepare('UPDATE safe_zones SET is_active=0 WHERE site_id=? AND is_active=1');$q->execute([$siteId]);
-        $q=$pdo->prepare('INSERT INTO safe_zones(name,version,site_id,is_demo,is_rehearsal,is_active,created_by) VALUES(?,?,?,?,?,1,?)');$q->execute([$name,$version,$siteId,$flags['is_demo'],$flags['is_rehearsal'],$createdBy]);$id=(int)$pdo->lastInsertId();
+        if($hasMetadata){$columns=implode(',',array_merge(['name','version','site_id','is_demo','is_rehearsal','is_active','created_by'],$metadataColumns));$marks=implode(',',array_fill(0,7+count($metadataColumns),'?'));$q=$pdo->prepare("INSERT INTO safe_zones($columns) VALUES($marks)");$q->execute(array_merge([$name,$version,$siteId,$flags['is_demo'],$flags['is_rehearsal'],1,$createdBy],array_values($metadata)));}
+        else{$q=$pdo->prepare('INSERT INTO safe_zones(name,version,site_id,is_demo,is_rehearsal,is_active,created_by) VALUES(?,?,?,?,?,1,?)');$q->execute([$name,$version,$siteId,$flags['is_demo'],$flags['is_rehearsal'],$createdBy]);}$id=(int)$pdo->lastInsertId();
         if($hasRing){$q=$pdo->prepare('INSERT INTO safe_zone_vertices(safe_zone_id,ring_index,vertex_order,latitude,longitude) VALUES(?,?,?,?,?)');foreach($clean as $r=>$ring)foreach($ring as $i=>$p)$q->execute([$id,$r,$i+1,$p[0],$p[1]]);}
         else{$q=$pdo->prepare('INSERT INTO safe_zone_vertices(safe_zone_id,vertex_order,latitude,longitude) VALUES(?,?,?,?)');foreach($clean[0] as $i=>$p)$q->execute([$id,$i+1,$p[0],$p[1]]);}
         $q=$pdo->prepare("INSERT INTO operator_actions(action_type,details_json,test_mode,is_demo,is_rehearsal,site_id) VALUES('SAFE_ZONE_UPDATED',?,0,?,?,?)");$q->execute([json_value(['safe_zone_id'=>$id,'version'=>$version,'site_id'=>$siteId,'rings'=>count($clean)]),$flags['is_demo'],$flags['is_rehearsal'],$siteId]);

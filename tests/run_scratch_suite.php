@@ -17,7 +17,7 @@ try{
   $pipes=[];$server=proc_open([PHP_BINARY,'-S','127.0.0.1:'.$port,'-t',$root.'/public',$root.'/public/router.php'],[0=>['pipe','r'],1=>['file',$serverLog,'a'],2=>['file',$serverLog,'a']],$pipes,$root,$env);if(!is_resource($server))throw new RuntimeException('Could not start the loopback scratch API server.');fclose($pipes[0]);
   $ready=false;for($i=0;$i<50;$i++){if(suite_http_ready($baseUrl.'/api/status')){$ready=true;break;}usleep(100000);}if(!$ready)throw new RuntimeException('Scratch API server did not report the scratch database.');
   [$sessionCookie,$csrfToken]=suite_login($baseUrl);$env['TRAILWATCH_TEST_SESSION_COOKIE']=$sessionCookie;$env['TRAILWATCH_TEST_CSRF_TOKEN']=$csrfToken;
-  $phpTests=['geofence_test.php','polygon_validation_test.php','research_summary_test.php','mode_safety_test.php','live_check_test.php','registry_service_test.php','clear_demo_scratch_test.php','live_schema_scratch_test.php','migration_scratch_test.php','ring_zone_scratch_test.php'];
+  $phpTests=['geofence_test.php','polygon_validation_test.php','research_summary_test.php','mode_safety_test.php','live_check_test.php','registry_service_test.php','clear_demo_scratch_test.php','live_schema_scratch_test.php','migration_scratch_test.php','ring_zone_scratch_test.php','safe_zone_metadata_scratch_test.php'];
   foreach($phpTests as $test){$status=suite_run([PHP_BINARY,$root.'/tests/'.$test],$root,$env);if($status!==0)$failed[]=$test;}
   $status=suite_run([PHP_BINARY,$root.'/tests/operator_auth_scratch_test.php',$baseUrl],$root,$env);if($status!==0)$failed[]='operator_auth_scratch_test.php';
   $status=suite_run([PHP_BINARY,$root.'/tests/bench_scratch_test.php',$baseUrl,$config['bridge_tokens']['live']],$root,$env);if($status!==0)$failed[]='bench_scratch_test.php';
