@@ -3,7 +3,7 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 // A safe zone is a list of rings. rings[0] is the outer edge; rings[1] (optional) is the inner edge of a
 // loop corridor, so the middle of the loop is NOT safe. An old single-ring zone is just rings=[[...]].
-let siteId='pup',site=null,zone=null,baseCamp=null,rings=[[]],view={lat0:0,lon0:0,minX:-100,maxX:100,minY:-100,maxY:100},drag=null,gpxSummary='';
+let siteId='pup',site=null,zone=null,baseCamp=null,rings=[[]],view={lat0:0,lon0:0,minX:-100,maxX:100,minY:-100,maxY:100},drag=null,gpxSummary='',gpxMetadata=null;
 const status=m=>{const el=$('#editor-status');el.textContent=m;el.classList.toggle('is-loading',m==='Loading site and active polygon…');},siteSelect=$('#site-select'),svg=$('#editor-svg');
 const csrf=()=>document.cookie.split('; ').find(c=>c.startsWith('TRAILWATCH_CSRF='))?.split('=').slice(1).join('=')||'';
 const logout=()=>{const host=document.querySelector('.editor-head');if(!host||host.querySelector('.operator-logout'))return;const form=document.createElement('form');form.className='operator-logout';form.method='post';form.action='logout.php';form.innerHTML=`<input type="hidden" name="csrf_token" value="${csrf()}"><button type="submit">Sign out</button>`;host.append(form);};logout();
@@ -39,6 +39,7 @@ function renderMap(){
   // One path with several sub-paths; fill-rule="evenodd" on the element leaves the inner ring empty.
   $('#editor-poly').setAttribute('d',ringPts.filter(rp=>rp.length>=2).map(rp=>'M'+rp.map(q=>`${q.p.x},${q.p.y}`).join(' L ')+' Z').join(' '));
   $('#editor-points').innerHTML=ringPts.flat().map(({r,i,p})=>`<g class="edit-point" data-r="${r}" data-i="${i}" transform="translate(${p.x} ${p.y})"><circle r="9"/><text y="4" text-anchor="middle">${label(r,i)}</text></g>`).join('');
+  updateLoopGuard();
 }
 function render(){renderMap();rows();}
 function rows(){
@@ -46,6 +47,22 @@ function rows(){
   $('#vertex-rows').innerHTML=rows||'<tr><td class="empty" colspan="4">No vertices yet</td></tr>';
 }
 const validate=()=>TrailGeometry.validateRings(rings);
+const meters=value=>value==null||value===''?'—':`${Number(value).toFixed(2)} m`;
+const count=value=>value==null||value===''?'—':String(value);
+function renderMetadataList(id,rows){const list=$(id);list.innerHTML=rows.map(([label,value])=>`<dt>${esc(label)}</dt><dd>${esc(value==null||value===''?'—':String(value))}</dd>`).join('');}
+function renderSavedMetadata(saved){renderMetadataList('#saved-metadata',[
+  ['GPX file name',saved?.gpx_file_name],['Raw GPX points',count(saved?.gpx_point_count)],['Simplified points',count(saved?.simplified_point_count)],
+  ['Simplification tolerance',saved?.simplify_tolerance_m==null?'—':meters(saved.simplify_tolerance_m)],['Largest deviation',saved?.simplify_max_deviation_m==null?'—':meters(saved.simplify_max_deviation_m)],
+  ['Recorded track length',saved?.recorded_track_length_m==null?'—':meters(saved.recorded_track_length_m)],['Ground-measured length',saved?.ground_length_m==null?'—':meters(saved.ground_length_m)],
+  ['Margin per side',saved?.margin_m==null?'—':meters(saved.margin_m)],['Corridor width',saved?.corridor_width_m==null?'—':meters(saved.corridor_width_m)],
+  ['Recorded minus ground',saved?.recorded_minus_ground_difference_m==null?'—':meters(saved.recorded_minus_ground_difference_m)],['Recording note',saved?.recording_note]
+]);}
+function updateLoopGuard(){const warning=$('#loop-guard-warning'),save=$('#save-zone'),state=TrailGeometry.loopGuardState(rings);const failed=rings.length===2&&!state.safe;warning.hidden=!failed;save.disabled=failed;return state;}
+function updateMarginWarning(){const value=Number($('#gpx-width').value);$('#margin-warning').hidden=!Number.isFinite(value)||value<=0||value>=10;}
+function showGpxPreview(meta,closed){const ground=$('#ground-length').value.trim(),parsedGround=ground===''?null:Number(ground),groundLength=Number.isFinite(parsedGround)?parsedGround:null,difference=groundLength===null?null:meta.recorded_track_length_m-groundLength;
+  const rows=[['GPX file name',meta.gpx_file_name],['Raw point count',meta.gpx_point_count],['Simplified point count',meta.simplified_point_count],['Simplification tolerance',meta.simplify_tolerance_m==null?'Not applied':meters(meta.simplify_tolerance_m)],['Largest deviation',meters(meta.simplify_max_deviation_m)],['Raw track length',meters(meta.recorded_track_length_m)],['Margin per side',meters(meta.margin_m)],['Corridor width',meters(2*meta.margin_m)],['Ring count',rings.filter(r=>r.length>=3).length],['Recorded minus ground',difference===null?'—':meters(difference)],['Loop rule',closed?'middle of the loop: OUTSIDE':'Open track; no loop middle']];
+  renderMetadataList('#gpx-preview-details',rows);$('#gpx-preview').hidden=false;
+}
 
 async function load(){
   const [sites,sz]=await Promise.all([request('sites'),request('safe-zone')]);
@@ -56,6 +73,7 @@ async function load(){
   const src=zone?.rings?.length?zone.rings:[zone?.vertices||[]];
   rings=src.map(r=>r.map(v=>({latitude:+v.latitude,longitude:+v.longitude})));
   $('#zone-name').value=zone?.name||'';
+  renderSavedMetadata(zone);
   $('#editor-map-title').textContent=site.display_name;
   $('#polygon-version').textContent=zone?`ACTIVE · v${zone.version}`:'NO ACTIVE POLYGON';
   $('#site-reference-list').innerHTML=[...(sz.reference_points||[]),...(sz.network_nodes||[]).map(n=>({label:n.display_name,point_type:n.node_type,latitude:n.latitude,longitude:n.longitude}))].map(p=>`<span class="reference-chip">${esc(p.label)}${p.unsurveyed?" · UNSURVEYED":""}${p.latitude!=null?` · ${p.latitude}, ${p.longitude}`:' · position unset'}</span>`).join('')||'<p>No reference coordinates configured for this site.</p>';
@@ -102,7 +120,7 @@ $('#preview-gpx').addEventListener('click',async()=>{
     if(segments.length>1)throw Error('GPX contains multiple segments or routes. Import one continuous route at a time so disconnected tracks are not joined.');
     const source=segments[0]||xml.documentElement,track=[...source.querySelectorAll('trkpt,rtept')].map(p=>({latitude:Number(p.getAttribute('lat')),longitude:Number(p.getAttribute('lon'))}));
     if(track.length<2)throw Error('GPX needs at least two track or route points.');
-    const originalCount=track.length;let simplified=track,deviation=0,tolerance=0;
+    const originalCount=track.length,rawTrackLength=TrailGeometry.trackLengthMeters(track);let simplified=track,deviation=0,tolerance=null;
     if(track.length>250){
       tolerance=Number($('#gpx-tolerance').value);if(!Number.isFinite(tolerance)||tolerance<=0)throw Error('Simplification tolerance must be greater than 0 meters.');
       const result=TrailGeometry.simplifyTrack(track,tolerance);simplified=result.points;deviation=result.maxDeviationMeters;
@@ -111,22 +129,27 @@ $('#preview-gpx').addEventListener('click',async()=>{
     const corridor=TrailGeometry.bufferTrackRings(simplified,width);
     const problem=TrailGeometry.validateRings(corridor.rings);
     if(problem)throw Error(`${problem} Try a smaller half-width.`);
+    gpxMetadata={gpx_file_name:file.name,gpx_point_count:originalCount,simplified_point_count:simplified.length,simplify_tolerance_m:tolerance,simplify_max_deviation_m:deviation,recorded_track_length_m:rawTrackLength,margin_m:width};
     gpxSummary=originalCount>250?`GPX simplified ${originalCount} → ${simplified.length} points using ${tolerance} m tolerance; measured maximum deviation ${deviation.toFixed(2)} m`:`GPX ${originalCount} points; no simplification needed`;
-    rings=corridor.rings;render();
-    const shape=corridor.closed?`closed loop: ring with an outer edge (${rings[0].length} vertices) and an inner edge (${rings[1].length}); the middle is outside the zone`:`${rings[0].length} vertices`;
-    status(`${gpxSummary}. Corridor preview, ${shape}, at ${width} m half-width. Review before saving.`);
-  }catch(e){gpxSummary='';status(`GPX preview failed: ${e.message}`);}
+    rings=corridor.rings;render();showGpxPreview(gpxMetadata,corridor.closed);updateMarginWarning();
+    const shape=corridor.closed?`closed loop: ${rings.length} rings; middle of the loop: OUTSIDE`:`open track: ${rings.length} ring`;
+    const guard=updateLoopGuard();status(guard.checked&&!guard.safe?'Inner-ring check failed: the middle classifies SAFE. Edit the corridor before saving.':`${gpxSummary}. Corridor preview: ${shape}, ${width} m margin per side (${2*width} m total width). Review before saving.`);
+  }catch(e){status(`GPX preview failed: ${e.message}`);}
 });
+$('#gpx-width').addEventListener('input',updateMarginWarning);$('#ground-length').addEventListener('input',()=>{if(gpxMetadata)showGpxPreview(gpxMetadata,rings.length===2);});updateMarginWarning();
 $('#save-zone').addEventListener('click',async()=>{
   const toSave=rings.filter(r=>r.length);
   const error=TrailGeometry.validateRings(toSave);if(error){status(error);return;}
+  const loop=TrailGeometry.loopGuardState(toSave);if(toSave.length===2&&!loop.safe){updateLoopGuard();status('The point inside the inner ring classifies SAFE. Edit the loop before saving.');return;}
   const name=$('#zone-name').value.trim();if(!name){status('Enter a polygon name.');return;}
+  const groundText=$('#ground-length').value.trim(),groundLength=groundText===''?null:Number(groundText);if(groundLength!==null&&(!Number.isFinite(groundLength)||groundLength<0)){status('Ground-measured length must be a non-negative number.');return;}
   if(!confirm(`Save this as a new active ${site.display_name} safe-zone version?`))return;
   try{
-    const d=await request('safe-zone',{method:'PUT',body:JSON.stringify({site_id:siteId,name,rings:toSave,created_by:'local-operator'})});
-    zone=d.safe_zone;$('#polygon-version').textContent=`ACTIVE · v${zone.version}`;
+    const payload={site_id:siteId,name,rings:toSave,created_by:'local-operator'};if(gpxMetadata)Object.assign(payload,gpxMetadata);if(groundLength!==null)payload.ground_length_m=groundLength;const note=$('#recording-note').value.trim();if(note)payload.recording_note=note;
+    const d=await request('safe-zone',{method:'PUT',body:JSON.stringify(payload)});
+    zone=d.safe_zone;renderSavedMetadata(zone);$('#polygon-version').textContent=`ACTIVE · v${zone.version}`;
     status(`${gpxSummary?`${gpxSummary}. `:''}Saved new active version ${zone.version}.`);
-  }catch(e){status(`Save failed: ${e.message}`);}
+  }catch(e){status(e.message);}
 });
 load().catch(e=>status(`Could not load editor: ${e.message}`));
 })();

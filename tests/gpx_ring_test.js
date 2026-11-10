@@ -1,6 +1,6 @@
 require('./test-preflight.js');
 const assert=require('node:assert/strict');
-const {bufferTrackRings,bufferTrack,validateRings}=require('../public/assets/js/safe-zone-geometry.js');
+const {bufferTrackRings,bufferTrack,validateRings,loopGuardState}=require('../public/assets/js/safe-zone-geometry.js');
 
 // The real PUP oval route (13 points, first == last). It is a LOOP trail, so the corridor must be a ring.
 const OVAL=[[14.5984572,121.0115997],[14.5980101,121.0116443],[14.5975654,121.0117268],[14.5973889,121.0119648],[14.5974087,121.0122211],[14.5976152,121.0124218],[14.5979353,121.0124309],[14.5983832,121.0123653],[14.5986655,121.012307],[14.5988001,121.01214],[14.5988167,121.0118694],[14.598665,121.0116463],[14.5984551,121.0115975]].map(([latitude,longitude])=>({latitude,longitude}));
@@ -23,6 +23,9 @@ console.log('PASS the red line itself is inside the corridor');
 const c=OVAL.slice(0,12).reduce((s,p)=>({x:s.x+xy(p).x/12,y:s.y+xy(p).y/12}),{x:0,y:0});
 assert.equal(inside(ll(c),res.rings),false);assert.equal(inside(ll(c),[res.rings[0]]),true);
 console.log('PASS middle of the oval is OUTSIDE (it would be inside if the loop were filled)');
+const holeGuard=loopGuardState(res.rings);assert.equal(holeGuard.checked,true);assert.equal(holeGuard.insideInner,true);assert.equal(holeGuard.insideZone,false);assert.equal(holeGuard.safe,true);
+const filledGuard=loopGuardState([res.rings[0]],res.rings[1]);assert.equal(filledGuard.checked,true);assert.equal(filledGuard.insideInner,true);assert.equal(filledGuard.insideZone,true);assert.equal(filledGuard.safe,false);
+console.log('PASS loop guard accepts a hole ring and flags the same inner area as SAFE when the hole is missing');
 
 let nIn=0,nOut=0;const base=xy(OVAL[0]);
 for(let dx=-80;dx<=140;dx+=3)for(let dy=-70;dy<=70;dy+=3){const p=ll({x:base.x+dx,y:base.y+dy-45}),d=distToTrack(p,OVAL);

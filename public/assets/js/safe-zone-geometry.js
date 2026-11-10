@@ -64,6 +64,13 @@ function bufferTrackRings(points,width){
 // Back-compatible: one flat outline (the outer ring only).
 function bufferTrack(points,width){return bufferTrackRings(points,width).rings[0];}
 
+// Haversine length for the original GPX points; this does not alter or simplify the track.
+function trackLengthMeters(points){
+  checkPoints(points);const radius=6371008.8,rad=v=>v*Math.PI/180;let total=0;
+  for(let i=1;i<points.length;i++){const a=points[i-1],b=points[i],dLat=rad(b.latitude-a.latitude),dLon=rad(b.longitude-a.longitude),lat1=rad(a.latitude),lat2=rad(b.latitude),h=Math.sin(dLat/2)**2+Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;total+=2*radius*Math.asin(Math.min(1,Math.sqrt(h)));}
+  return total;
+}
+
 function pointSegmentDistance(point,a,b){const dx=b.x-a.x,dy=b.y-a.y,length=dx*dx+dy*dy;if(length===0)return Math.hypot(point.x-a.x,point.y-a.y);const t=Math.max(0,Math.min(1,((point.x-a.x)*dx+(point.y-a.y)*dy)/length));return Math.hypot(point.x-(a.x+t*dx),point.y-(a.y+t*dy));}
 function simplifyTrack(points,toleranceMeters){if(!Array.isArray(points)||points.length<2)throw new Error('track needs at least two points');if(!Number.isFinite(toleranceMeters)||toleranceMeters<=0)throw new Error('simplification tolerance must be greater than 0 meters');if(points.some(p=>!Number.isFinite(p.latitude)||!Number.isFinite(p.longitude)||Math.abs(p.latitude)>90||Math.abs(p.longitude)>180))throw new Error('track coordinates must be valid latitude/longitude pairs');const origin=points[0],cos=Math.cos(origin.latitude*Math.PI/180),xy=points.map(p=>({x:(p.longitude-origin.longitude)*cos*111320,y:(p.latitude-origin.latitude)*110540}));const closed=xy.length>3&&Math.hypot(xy[0].x-xy[xy.length-1].x,xy[0].y-xy[xy.length-1].y)<.5,keep=new Uint8Array(points.length);keep[0]=1;keep[points.length-1]=1;const simplifyRange=(first,last)=>{keep[first]=1;keep[last]=1;const stack=[[first,last]];while(stack.length){const [start,end]=stack.pop();if(end-start<2)continue;let farthest=-1,maxDistance=toleranceMeters;for(let i=start+1;i<end;i++){const d=pointSegmentDistance(xy[i],xy[start],xy[end]);if(d>maxDistance){maxDistance=d;farthest=i;}}if(farthest>=0){keep[farthest]=1;stack.push([start,farthest],[farthest,end]);}}};if(closed){let anchor=1,maxDistance=-1;for(let i=1;i<points.length-1;i++){const d=Math.hypot(xy[i].x-xy[0].x,xy[i].y-xy[0].y);if(d>maxDistance){maxDistance=d;anchor=i;}}simplifyRange(0,anchor);simplifyRange(anchor,points.length-1);let kept=Array.from(keep,(v,i)=>v?i:-1).filter(i=>i>=0);if(kept.length<4){let candidate=-1,candidateDistance=-1;for(let i=1;i<points.length-1;i++){if(keep[i])continue;const d=pointSegmentDistance(xy[i],xy[0],xy[anchor]);if(d>candidateDistance){candidateDistance=d;candidate=i;}}if(candidate>=0)keep[candidate]=1;}}else simplifyRange(0,points.length-1);const indices=Array.from(keep,(v,i)=>v?i:-1).filter(i=>i>=0);let maxDeviationMeters=0;for(let s=0;s<indices.length-1;s++){const start=indices[s],end=indices[s+1];for(let i=start+1;i<end;i++)maxDeviationMeters=Math.max(maxDeviationMeters,pointSegmentDistance(xy[i],xy[start],xy[end]));}return{points:indices.map(i=>points[i]),maxDeviationMeters};}
 
@@ -74,6 +81,35 @@ function segIntersect(a,b,c,d){const o1=cross(a,b,c),o2=cross(a,b,d),o3=cross(c,
 function ringSelfIntersects(xy){const n=xy.length;for(let i=0;i<n;i++)for(let j=i+1;j<n;j++){if((j+1)%n===i||(i+1)%n===j)continue;if(segIntersect(xy[i],xy[(i+1)%n],xy[j],xy[(j+1)%n]))return true;}return false;}
 function ringsCross(A,B){for(let i=0;i<A.length;i++)for(let j=0;j<B.length;j++)if(segIntersect(A[i],A[(i+1)%A.length],B[j],B[(j+1)%B.length]))return true;return false;}
 function pointInRing(p,xy){let inside=false;for(let i=0,j=xy.length-1;i<xy.length;j=i++){const a=xy[i],b=xy[j];if((a.y>p.y)!==(b.y>p.y)&&p.x<(b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x)inside=!inside;}return inside;}
+// Mirrors src/geofence.php: even-odd across rings, and a point on any ring edge is inside.
+function pointInRings(point,rings){
+  if(!hasCoord(point)||!Array.isArray(rings))return false;let inside=false;const lat=Number(point.latitude),lng=Number(point.longitude);
+  for(const ring of rings){if(!Array.isArray(ring)||ring.length<3)continue;for(let i=0,j=ring.length-1;i<ring.length;j=i++){
+    const a=ring[i],b=ring[j],yi=Number(a.latitude),xi=Number(a.longitude),yj=Number(b.latitude),xj=Number(b.longitude),cross=(lng-xi)*(yj-yi)-(lat-yi)*(xj-xi);
+    if(Math.abs(cross)<1e-10&&lat>=Math.min(yi,yj)-1e-10&&lat<=Math.max(yi,yj)+1e-10&&lng>=Math.min(xi,xj)-1e-10&&lng<=Math.max(xi,xj)+1e-10)return true;
+    if((yi>lat)!==(yj>lat)&&lng<(xj-xi)*(lat-yi)/(yj-yi)+xi)inside=!inside;
+  }}return inside;
+}
+function ringInteriorPoint(ring){
+  if(!Array.isArray(ring)||ring.length<3||ring.some(v=>!hasCoord(v)))return null;
+  const pts=ring.map(v=>({latitude:Number(v.latitude),longitude:Number(v.longitude)})),f=frame(pts),xy=pts.map(f.toXY),ys=[...new Set(xy.map(p=>p.y))].sort((a,b)=>a-b);
+  for(let band=0;band<ys.length-1;band++){
+    if(ys[band+1]-ys[band]<1e-9)continue;const y=(ys[band]+ys[band+1])/2,xs=[];
+    for(let i=0,j=xy.length-1;i<xy.length;j=i++){const a=xy[j],b=xy[i];if((a.y>y)!==(b.y>y))xs.push(a.x+(y-a.y)*(b.x-a.x)/(b.y-a.y));}
+    xs.sort((a,b)=>a-b);
+    for(let i=0;i+1<xs.length;i+=2){if(xs[i+1]-xs[i]<1e-7)continue;const probe=f.toLL({x:(xs[i]+xs[i+1])/2,y});if(pointInRings(probe,[pts]))return probe;}
+  }
+  return null;
+}
+// For two rings, require a representative point in the inner ring to be outside the complete zone.
+// expectedInnerRing is useful to test a missing-hole/filled-polygon regression.
+function loopGuardState(rings,expectedInnerRing=null){
+  const inner=expectedInnerRing||(Array.isArray(rings)&&rings.length===2?rings[1]:null);
+  if(!inner)return{checked:false,safe:true,probe:null,insideInner:null,insideZone:null};
+  const probe=ringInteriorPoint(inner);if(!probe)return{checked:true,safe:false,probe:null,insideInner:false,insideZone:null};
+  const insideInner=pointInRings(probe,[inner]),insideZone=pointInRings(probe,rings);
+  return{checked:true,safe:insideInner&&!insideZone,probe,insideInner,insideZone};
+}
 const hasCoord=v=>v!=null&&v.latitude!=null&&v.longitude!=null&&v.latitude!==''&&v.longitude!==''&&Number.isFinite(Number(v.latitude))&&Number.isFinite(Number(v.longitude));
 /** Returns '' when the rings are a valid safe zone, otherwise a message for the operator. */
 function validateRings(rings){
@@ -91,5 +127,5 @@ function validateRings(rings){
   }
   return '';
 }
-return {bufferTrack,bufferTrackRings,simplifyTrack,validateRings};
+return {bufferTrack,bufferTrackRings,simplifyTrack,trackLengthMeters,pointInRings,ringInteriorPoint,loopGuardState,validateRings};
 });
