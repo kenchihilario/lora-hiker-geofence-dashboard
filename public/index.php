@@ -25,7 +25,7 @@ function e(string $value): string { return htmlspecialchars($value, ENT_QUOTES, 
   <script src="assets/js/source-flags.js?v=20261105-2" defer></script>
   <script src="assets/js/dashboard-label-layout.js?v=20261104-1" defer></script>
   <script src="assets/js/utc-time.js?v=20261110-1" defer></script>
-  <script src="assets/js/dashboard.js?v=20261110-1" defer></script>
+  <script src="assets/js/dashboard.js?v=20261110-2" defer></script>
 </head>
 <body data-active-mode="<?= e($dashboardMode) ?>">
 <div class="app-shell">
@@ -86,7 +86,7 @@ function e(string $value): string { return htmlspecialchars($value, ENT_QUOTES, 
           <div class="hiker-foot"><span>GPS <?= e($hiker['accuracy']) ?> <b>·</b> <?= e($hiker['rssi']) ?></span><span class="demo-chip">DEMO</span></div>
         </article><?php endforeach; endif; ?></div>
       </section>
-      <section class="panel packet-log-panel" id="logs" aria-labelledby="packet-log-title"><div class="panel-heading"><div><div class="section-kicker">RECEPTIONS</div><h2 id="packet-log-title">Packet log</h2></div><div class="packet-export-actions"><a class="offline-pill" href="api/export.csv?type=packets">Export packet CSV</a> <a class="offline-pill" href="api/export.csv?type=events">Export event CSV</a></div></div><div class="packet-log-scroll"><table class="packet-log-table"><thead><tr><th>Time</th><th>Hiker / seq</th><th>Heard by</th><th>Relay hop</th><th>Route</th><th>Duplicate</th><th>Session / phase</th></tr></thead><tbody id="packet-log-rows"><tr class="packet-loading-row"><td colspan="7" class="empty"><span class="loading-skeleton" aria-hidden="true"><i></i><i></i></span><span>Loading packet receptions…</span></td></tr></tbody></table></div></section>
+      <section class="panel packet-log-panel" id="logs" aria-labelledby="packet-log-title"><div class="panel-heading"><div><div class="section-kicker">RECEPTIONS</div><h2 id="packet-log-title">Packet log</h2></div><div class="packet-export-actions"><a class="offline-pill" href="api/export.csv?type=packets">Export packet CSV</a> <a class="offline-pill" href="api/export.csv?type=events">Export event CSV</a></div></div><div class="packet-log-scroll"><table class="packet-log-table"><thead><tr><th>Time</th><th>Hiker / seq</th><th>Heard by</th><th>Relay hop</th><th>Route</th><th>Duplicate</th><th>Session / phase</th><th>Intended</th><th>Point source</th><th>Matched</th></tr></thead><tbody id="packet-log-rows"><tr class="packet-loading-row"><td colspan="10" class="empty"><span class="loading-skeleton" aria-hidden="true"><i></i><i></i></span><span>Loading packet receptions…</span></td></tr></tbody></table></div></section>
     </div>
     <footer class="page-footer"><span>TRAILWATCH <b>·</b> LOCAL BASE CAMP CONSOLE</span><span>Sample coordinates and events <b>·</b> Not for field-safety decisions</span></footer>
   </main>

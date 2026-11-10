@@ -13,6 +13,16 @@ function packet_age_details(?string $receivedAt,?int $now=null): array {
     $delta=($now??time())-$received;
     return ['seconds_since_report'=>max(0,$delta),'clock_skew_suspected'=>$delta < -5];
 }
+function packet_annotation_schema_available(PDO $pdo): bool { return schema_table_exists($pdo,'packet_annotations'); }
+function packet_annotation_match(?string $intended,?string $classification): string {
+    if(!in_array($intended,['INSIDE','OUTSIDE'],true)||!in_array($classification,['INSIDE','OUTSIDE'],true))return '';
+    return $intended===$classification?'Y':'N';
+}
+function packet_annotation_select(PDO $pdo): array {
+    return packet_annotation_schema_available($pdo)
+        ? ['select'=>'a.intended_class,a.point_source','join'=>' LEFT JOIN packet_annotations a ON a.uplink_packet_id=p.id']
+        : ['select'=>'NULL intended_class,NULL point_source','join'=>''];
+}
 function packet_is_demo_or_test(array $data): bool {
     $u=is_array($data['uplink']??null)?$data['uplink']:[];$f=is_array($u['flags']??null)?$u['flags']:[];
     return !empty($data['is_demo'])||!empty($data['is_rehearsal'])||!empty($f['test_mode'])||!empty($data['test_mode']);

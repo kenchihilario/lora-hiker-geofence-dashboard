@@ -25,5 +25,10 @@ check(/<option value="BENCH">BENCH · Bench session<\/option>/.test(markup), 'Se
 check(settings.includes('differs from dashboard phase') && settings.includes('phaseLabel(phaseMode)'), 'session phase mismatch warning names both phase values');
 check(settings.includes('Bench session switch is OFF') && settings.includes("activeMode==='LIVE'"), 'LIVE bench switch warning is non-blocking and phase-aware');
 check(settings.includes("value==='BENCH'?'BENCH'") && dashboard.includes('p.session_phase'), 'BENCH phase is formatted and exposed in packet rows');
+for (const id of ['packet-annotation-panel','packet-annotation-summary','packet-annotation-mismatches','packet-annotation-range-form','annotation-session-id','annotation-node-id','annotation-sequence-from','annotation-sequence-to','annotation-intended-class','annotation-point-source','annotation-set-button','annotation-clear-button','packet-annotation-status']) {
+  check(markup.includes(`id="${id}"`), `Settings annotation form includes #${id}`);
+}
+check(settings.includes("request(`annotations/summary?session_id=") && settings.includes("request('annotations/range'") && settings.includes('annotationSessionId.value=sessionId'), 'annotation summary and range actions use the active session by default');
+check(settings.includes("'No active test session. Start a session to annotate its packets.'") && settings.includes('Packet annotations require migration 012'), 'annotation UI disables writes without a session or migration 012');
 
 console.log('PASS session UI state, error, and safety copy contract');

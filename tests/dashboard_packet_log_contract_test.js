@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 const api = fs.readFileSync(path.join(root, 'public/api/index.php'), 'utf8');
+const apiService = fs.readFileSync(path.join(root, 'src/Services/ApiService.php'), 'utf8');
 const dashboard = fs.readFileSync(path.join(root, 'public/assets/js/dashboard.js'), 'utf8');
 const page = fs.readFileSync(path.join(root, 'public/index.php'), 'utf8');
 const labelLayout = fs.readFileSync(path.join(root, 'public/assets/js/dashboard-label-layout.js'), 'utf8');
@@ -17,6 +18,10 @@ const checks = [
   ['dashboard requests packet-log API', dashboard.includes("api('logs/packets?limit=20')")],
   ['dashboard displays all reception fields', ['p.received_by_node', 'p.relay_hop_delay_ms', 'p.route_type', 'p.is_duplicate'].every(x => dashboard.includes(x))],
   ['dashboard has packet-log table columns', ['Heard by', 'Relay hop', 'Route', 'Duplicate'].every(x => page.includes(x))],
+  ['packet log exposes intended class, point source, and match result', ['Intended', 'Point source', 'Matched'].every(x => page.includes(`<th>${x}</th>`)) && ['p.intended_class','p.point_source','p.classification_matched'].every(x=>dashboard.includes(x)) && api.includes("$row['classification_matched']=packet_annotation_match" )],
+  ['packet log empty-state spans all ten columns', dashboard.includes('colspan="10"')],
+  ['packet CSV appends annotation columns without reordering existing columns', api.includes("'source','intended_class','point_source','classification_matched'") && api.includes("$r['intended_class'],$r['point_source'],packet_annotation_match($r['intended_class'],$r['classification'])")],
+  ['packet API and CSV keep annotations optional on pre-012 schemas', apiService.includes("NULL intended_class,NULL point_source") && api.includes('Packet annotations require database migration 012')],
   ['dashboard requests and labels active study phase', dashboard.includes("api('settings/phase-mode')") && dashboard.includes('Phase 2') && page.includes('dashboard-phase-mode')],
   ['dashboard shows an explicit empty safe-zone state', page.includes('id="no-safe-zone"') && page.includes('No safe zone set') && dashboard.includes('noZone.hidden=!!z.safe_zone')],
   ['dashboard includes mode labels in the title and top banner', page.includes('main-mode-banner') && page.includes('top-mode-indicator') && dashboard.includes('document.title=`${st.active_mode}')],
