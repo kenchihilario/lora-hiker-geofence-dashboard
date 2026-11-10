@@ -15,7 +15,7 @@ try{
   assert_scratch(should_reject_live_packet('LIVE',['is_demo'=>true],'hiker_dashboard_live',true),'flagged packets remain rejected for the actual LIVE database name');
   run_scratch_command([PHP_BINARY,$root.'/tools/setup_db.php','--profile=demo','--schema-only','--config='.$configPath],$root);
   run_scratch_command([PHP_BINARY,$root.'/tools/migrate_db.php','--profile=demo','--config='.$configPath],$root);
-  $pdo=new PDO('mysql:host='.$base['db_host'].';dbname='.$dbName.';charset=utf8mb4',$base['db_user'],$base['db_pass'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+  $pdo=utc_pdo('mysql:host='.$base['db_host'].';dbname='.$dbName.';charset=utf8mb4',$base['db_user'],$base['db_pass'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
   foreach(['hiker_nodes','network_nodes','safe_zones','uplink_packets','system_events','site_locations'] as $table)assert_scratch((int)$pdo->query('SELECT COUNT(*) FROM '.$table)->fetchColumn()===0,'schema-only scratch database starts without seeded '.$table);
   [$server,$url]=launch_scratch_server($root,$configPath,$modePath,$serverLog,false);
   [$status,$activeSession]=scratch_http($url.'/test-sessions/active');assert_scratch($status===200&&($activeSession['session_schema_available']??false)&&empty($activeSession['active_session']),'LIVE API reports the selected site has no active session');
@@ -45,7 +45,7 @@ try{
 }catch(Throwable $e){fwrite(STDERR,'FAIL '.$e->getMessage()."\n");$failed=true;}
 finally{
   if(is_resource($server)){proc_terminate($server);proc_close($server);}
-  try{$admin=new PDO('mysql:host='.$base['db_host'].';charset=utf8mb4',$base['db_user'],$base['db_pass'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);if(preg_match('/^hiker_dashboard_scratch_[a-f0-9]{8}$/',$dbName))$admin->exec('DROP DATABASE IF EXISTS `'.$dbName.'`');}catch(Throwable $e){fwrite(STDERR,"CLEANUP FAIL: could not drop generated scratch database.\n");$failed=true;}
+  try{$admin=utc_pdo('mysql:host='.$base['db_host'].';charset=utf8mb4',$base['db_user'],$base['db_pass'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);if(preg_match('/^hiker_dashboard_scratch_[a-f0-9]{8}$/',$dbName))$admin->exec('DROP DATABASE IF EXISTS `'.$dbName.'`');}catch(Throwable $e){fwrite(STDERR,"CLEANUP FAIL: could not drop generated scratch database.\n");$failed=true;}
   foreach([$configPath,$modePath,$serverLog] as $file)if(is_file($file))@unlink($file);
   if($oldRejection===null){if(is_file($rejectionLog))@unlink($rejectionLog);}else file_put_contents($rejectionLog,$oldRejection);
 }

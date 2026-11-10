@@ -7,7 +7,7 @@ $cfg=['db_profiles'=>['demo'=>['db_host'=>$base['db_host'],'db_name'=>$name,'db_
 try{
  $run=function(string $file,array $args)use($root){$cmd=array_merge([PHP_BINARY,$root.'/'.$file],$args);$pipes=[];$p=proc_open($cmd,[0=>['pipe','r'],1=>['pipe','w'],2=>['pipe','w']],$pipes,$root);if(!is_resource($p))throw new RuntimeException('Could not start scratch utility');fclose($pipes[0]);$out=stream_get_contents($pipes[1]);fclose($pipes[1]);$err=stream_get_contents($pipes[2]);fclose($pipes[2]);if(proc_close($p)!==0)throw new RuntimeException($err?:'Scratch utility failed');return$out;};
  $run('tools/setup_db.php',['--profile=demo','--schema-only','--config='.$configPath]);
- $p=new PDO("mysql:host={$base['db_host']};dbname=$name;charset=utf8mb4",$base['db_user'],$base['db_pass'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+ $p=utc_pdo("mysql:host={$base['db_host']};dbname=$name;charset=utf8mb4",$base['db_user'],$base['db_pass'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
  $p->exec("INSERT INTO hiker_nodes(node_id,display_name) VALUES('LEGACY','Legacy migration fixture')");$hiker=(int)$p->lastInsertId();
  $q=$p->prepare("INSERT INTO uplink_packets(hiker_node_id,site_id,sequence_number,latitude,longitude,received_at) VALUES(?,'pup',77,14.8,121.0,CURRENT_TIMESTAMP)");$q->execute([$hiker]);$packet=(int)$p->lastInsertId();
  $p->prepare("INSERT INTO packet_receptions(uplink_packet_id,received_by_node,site_id,received_at) VALUES(?,'BASE','pup',CURRENT_TIMESTAMP)")->execute([$packet]);
@@ -39,7 +39,7 @@ try{
  $q=$p->prepare('SELECT p.session_id,r.session_id reception_session,c.session_id command_session,e.session_id event_session FROM uplink_packets p JOIN packet_receptions r ON r.uplink_packet_id=p.id JOIN downlink_commands c ON c.hiker_node_id=p.hiker_node_id AND c.site_id=p.site_id AND c.sequence_number=p.sequence_number JOIN system_events e ON e.hiker_node_id=p.hiker_node_id WHERE p.id=?');$q->execute([$packet]);$row=$q->fetch();if(!$row||!$row['session_id']||count(array_unique(array_map('intval',$row)))!==1)throw new RuntimeException('Migration 010 did not backfill all legacy rows into the same site legacy session');
  echo "PASS migration runner applies eleven ordered migrations, reruns safely, and migration 010 backfills packet/reception/command/event rows into one legacy session per site (disposable scratch database).\n";
 }catch(Throwable $e){fwrite(STDERR,'FAIL '.$e->getMessage()."\n");$failed=true;}
-finally{if(is_resource($server)){proc_terminate($server);proc_close($server);}try{$admin=new PDO('mysql:host='.$base['db_host'].';charset=utf8mb4',$base['db_user'],$base['db_pass'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);$admin->exec("DROP DATABASE IF EXISTS `$name`");}catch(Throwable $e){fwrite(STDERR,"CLEANUP ERROR: scratch database drop failed.\n");$failed=true;}@unlink($configPath);@unlink($serverLog);}
+finally{if(is_resource($server)){proc_terminate($server);proc_close($server);}try{$admin=utc_pdo('mysql:host='.$base['db_host'].';charset=utf8mb4',$base['db_user'],$base['db_pass'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);$admin->exec("DROP DATABASE IF EXISTS `$name`");}catch(Throwable $e){fwrite(STDERR,"CLEANUP ERROR: scratch database drop failed.\n");$failed=true;}@unlink($configPath);@unlink($serverLog);}
 if($failed)exit(1);
 
 function pre010_http(string $url,string $method='GET',?array $payload=null): array {

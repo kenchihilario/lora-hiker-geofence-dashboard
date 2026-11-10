@@ -3,13 +3,13 @@ require_once __DIR__.'/../src/db.php';
 try{require_disposable_test_profile();}catch(Throwable $e){fwrite(STDERR,"REFUSED: ".$e->getMessage()."\n");exit(2);}
 require_once __DIR__.'/../src/Services/ApiService.php';
 
-$base=db_profile('demo');$admin=new PDO('mysql:host='.$base['db_host'].';charset=utf8mb4',$base['db_user'],$base['db_pass'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+$base=db_profile('demo');$admin=utc_pdo('mysql:host='.$base['db_host'].';charset=utf8mb4',$base['db_user'],$base['db_pass'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
 $names=['hiker_dashboard_scratch_'.bin2hex(random_bytes(6)),'hiker_dashboard_scratch_'.bin2hex(random_bytes(6))];$databases=[];$failed=false;
 function ring_assert(bool $ok,string $message):void{if(!$ok)throw new RuntimeException($message);echo "PASS $message\n";}
 function ring_sql(PDO $pdo,string $sql):void{foreach(array_filter(array_map('trim',preg_split('/;\s*(?:\r?\n|$)/',$sql))) as $statement)$pdo->exec($statement);}
 function ring_db(PDO $admin,array $base,string $name,bool $legacy):PDO{
     $admin->exec("CREATE DATABASE `$name` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
-    $pdo=new PDO('mysql:host='.$base['db_host'].';dbname='.$name.';charset=utf8mb4',$base['db_user'],$base['db_pass'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+    $pdo=utc_pdo('mysql:host='.$base['db_host'].';dbname='.$name.';charset=utf8mb4',$base['db_user'],$base['db_pass'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
     if($legacy){
         // Build the actual pre-008 shape by applying migrations 001 through 007 only.
         $pdo->exec('CREATE TABLE schema_migrations(migration VARCHAR(190) PRIMARY KEY,checksum CHAR(64) NOT NULL,applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP) ENGINE=InnoDB');

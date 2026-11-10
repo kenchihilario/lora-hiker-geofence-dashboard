@@ -8,7 +8,7 @@ function metadata_run(string $file,array $args,string $root):string{$pipes=[];$p
 try{
  $cfg=['db_profiles'=>['demo'=>['db_host'=>$base['db_host'],'db_name'=>$name,'db_user'=>$base['db_user'],'db_pass'=>$base['db_pass']],'live'=>['db_host'=>$base['db_host'],'db_name'=>$name,'db_user'=>$base['db_user'],'db_pass'=>$base['db_pass']]],'bridge_tokens'=>['demo'=>'scratch-only','live'=>'scratch-only'],'local_only'=>true];file_put_contents($configPath,"<?php return ".var_export($cfg,true).";\n");
  metadata_run('tools/setup_db.php',['--profile=demo','--schema-only','--config='.$configPath],$root);metadata_run('tools/migrate_db.php',['--profile=demo','--config='.$configPath],$root);
- $pdo=new PDO('mysql:host='.$base['db_host'].';dbname='.$name.';charset=utf8mb4',$base['db_user'],$base['db_pass'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+ $pdo=utc_pdo('mysql:host='.$base['db_host'].';dbname='.$name.';charset=utf8mb4',$base['db_user'],$base['db_pass'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
  $meta=['margin_m','gpx_file_name','gpx_point_count','simplified_point_count','simplify_tolerance_m','simplify_max_deviation_m','recorded_track_length_m','ground_length_m','recording_note'];
  foreach($meta as $column)$pdo->exec("ALTER TABLE safe_zones DROP COLUMN `$column`");$pdo->exec("DELETE FROM schema_migrations WHERE migration='011_safe_zone_version_metadata.sql'");
  metadata_assert((int)$pdo->query("SELECT COUNT(*) FROM schema_migrations WHERE migration LIKE '011_%'")->fetchColumn()===0,'fixture represents a pre-011 database');
@@ -28,5 +28,5 @@ try{
  $invalidMargin=false;try{save_zone($pdo,['site_id'=>'pup','name'=>'invalid GPX margin','is_demo'=>true,'vertices'=>$outer,'gpx_file_name'=>'track.gpx','margin_m'=>4]);}catch(InvalidArgumentException $e){$invalidMargin=true;}metadata_assert($invalidMargin,'GPX margin below 5 m is rejected');
  echo "PASS safe-zone metadata scratch integration complete; disposable database only.\n";
 }catch(Throwable $e){fwrite(STDERR,'FAIL '.$e->getMessage()."\n");$failed=true;}
-finally{try{$admin=new PDO('mysql:host='.$base['db_host'].';charset=utf8mb4',$base['db_user'],$base['db_pass'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);if(preg_match('/^hiker_dashboard_scratch_[a-f0-9]{12}$/',$name))$admin->exec("DROP DATABASE IF EXISTS `$name`");}catch(Throwable $e){fwrite(STDERR,"CLEANUP FAIL: could not drop safe-zone metadata scratch database.\n");$failed=true;}@unlink($configPath);}
+finally{try{$admin=utc_pdo('mysql:host='.$base['db_host'].';charset=utf8mb4',$base['db_user'],$base['db_pass'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);if(preg_match('/^hiker_dashboard_scratch_[a-f0-9]{12}$/',$name))$admin->exec("DROP DATABASE IF EXISTS `$name`");}catch(Throwable $e){fwrite(STDERR,"CLEANUP FAIL: could not drop safe-zone metadata scratch database.\n");$failed=true;}@unlink($configPath);}
 if($failed)exit(1);

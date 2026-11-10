@@ -27,12 +27,12 @@ function build_live_check_report(array $f): array {
     $add('local_guard','Local-only operator guard',!empty($f['local_guard']),!empty($f['local_guard'])?'Enabled.':'Disabled.');
     $backupAge=$f['backup_age_seconds']??null;
     $add('backup','LIVE backup available',$backupAge!==null,$backupAge===null?'No LIVE SQL backup was found under backups/<timestamp>/.':'Latest LIVE backup age: '.max(0,(int)$backupAge).' seconds.');
-    return ['ok'=>!array_filter($checks,static fn($c)=>$c['status']!=='PASS'),'checked_at'=>gmdate('c'),'database'=>$f['database_name']??null,'checks'=>$checks];
+    return ['ok'=>!array_filter($checks,static fn($c)=>$c['status']!=='PASS'),'checked_at'=>gmdate('c'),'database'=>$f['database_name']??null,'clock_check'=>$f['clock_check']??null,'checks'=>$checks];
 }
 
 function collect_live_check_facts(PDO $pdo,array $config,string $projectRoot): array {
     $facts=['database_reachable'=>false,'integrity_ok'=>false,'integrity_detail'=>'No table checks completed.','migrations_current'=>false,'migration_detail'=>'Migration ledger was not verified.','tokens_ok'=>false,'site_id'=>null,'active_test_session'=>false,'hiker_count'=>0,'base_present'=>false,'base_located'=>false,'checkpoint_present'=>false,'checkpoint_located'=>false,'safe_zone_active'=>false,'flagged_rows'=>-1,'local_guard'=>!empty($config['local_only']),'backup_age_seconds'=>null,'database_name'=>null];
-    $pdo->query('SELECT 1')->fetchColumn();$facts['database_reachable']=true;
+    $pdo->query('SELECT 1')->fetchColumn();$facts['database_reachable']=true;$facts['clock_check']=clock_check_values($pdo);
     $profile=$config['db_profiles']['live']??[];$facts['database_name']=$profile['db_name']??null;
     $demoToken=(string)($config['bridge_tokens']['demo']??'');$liveToken=(string)($config['bridge_tokens']['live']??'');
     $isConfigured=static fn(string $token): bool=>$token!==''&&!str_starts_with($token,'replace-with-');

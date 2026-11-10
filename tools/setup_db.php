@@ -10,7 +10,7 @@ if($p['db_name']!==$expected){fwrite(STDERR,"Configured database name does not m
 if($profile==='demo'&&$expected==='hiker_dashboard_live'){fwrite(STDERR,"Refusing to seed a DEMO setup into the LIVE database.\n");exit(2);}
 if(isset($opts['schema-only'])&&($profile!=='demo'||!str_starts_with($expected,'hiker_dashboard_scratch_'))){fwrite(STDERR,"--schema-only is reserved for disposable hiker_dashboard_scratch_* databases.\n");exit(2);}
 try {
- $pdo=new PDO('mysql:host='.$p['db_host'].';charset=utf8mb4',$p['db_user'],$p['db_pass'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
+ $pdo=utc_pdo('mysql:host='.$p['db_host'].';charset=utf8mb4',$p['db_user'],$p['db_pass'],[PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION]);
  $pdo->exec("CREATE DATABASE IF NOT EXISTS `$expected` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
  $pdo->exec("USE `$expected`");
  $schema=file_get_contents(__DIR__.'/../sql/schema.sql');

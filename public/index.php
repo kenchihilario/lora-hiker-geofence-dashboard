@@ -24,7 +24,8 @@ function e(string $value): string { return htmlspecialchars($value, ENT_QUOTES, 
   <link rel="stylesheet" href="assets/css/dashboard.css?v=20261107-1">
   <script src="assets/js/source-flags.js?v=20261105-2" defer></script>
   <script src="assets/js/dashboard-label-layout.js?v=20261104-1" defer></script>
-  <script src="assets/js/dashboard.js?v=20261107-1" defer></script>
+  <script src="assets/js/utc-time.js?v=20261110-1" defer></script>
+  <script src="assets/js/dashboard.js?v=20261110-1" defer></script>
 </head>
 <body data-active-mode="<?= e($dashboardMode) ?>">
 <div class="app-shell">

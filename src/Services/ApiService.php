@@ -3,6 +3,16 @@ require_once __DIR__ . '/../db.php';
 require_once __DIR__ . '/../geofence.php';
 
 function json_value($value): ?string { return $value === null ? null : json_encode($value, JSON_THROW_ON_ERROR); }
+function clock_check_values(PDO $pdo): array {
+    $row=$pdo->query('SELECT NOW(3) db_now,@@session.time_zone session_time_zone,@@global.time_zone global_time_zone,@@system_time_zone system_time_zone')->fetch();
+    return ['server_utc_now'=>gmdate('Y-m-d H:i:s'),'db_now'=>$row['db_now'],'session_time_zone'=>$row['session_time_zone'],'global_time_zone'=>$row['global_time_zone'],'system_time_zone'=>$row['system_time_zone'],'php_timezone'=>date_default_timezone_get()];
+}
+function packet_age_details(?string $receivedAt,?int $now=null): array {
+    if($receivedAt===null||$receivedAt==='')return ['seconds_since_report'=>null,'clock_skew_suspected'=>false];
+    try{$received=(new DateTimeImmutable($receivedAt,new DateTimeZone('UTC')))->getTimestamp();}catch(Throwable $e){return ['seconds_since_report'=>null,'clock_skew_suspected'=>false];}
+    $delta=($now??time())-$received;
+    return ['seconds_since_report'=>max(0,$delta),'clock_skew_suspected'=>$delta < -5];
+}
 function packet_is_demo_or_test(array $data): bool {
     $u=is_array($data['uplink']??null)?$data['uplink']:[];$f=is_array($u['flags']??null)?$u['flags']:[];
     return !empty($data['is_demo'])||!empty($data['is_rehearsal'])||!empty($f['test_mode'])||!empty($data['test_mode']);
@@ -263,7 +273,7 @@ function ingest_packet(PDO $pdo,array $d,bool $dryRun=false): array {
     $path=$r['path_type'];if(!in_array($path,['DIRECT','CHECKPOINT_RELAY'],true))throw new InvalidArgumentException('reception.path_type must be DIRECT or CHECKPOINT_RELAY');
     $checkpointId=null;$checkpointRssi=null;if($path==='CHECKPOINT_RELAY'){$checkpointId=trim((string)($r['checkpoint_id']??''));if(!valid_node_code($pdo,$checkpointId,'CHECKPOINT',$siteId))throw new InvalidArgumentException('checkpoint_id must identify an enabled Checkpoint Node');$checkpointRssi=$r['checkpoint_rssi_dbm']??null;if(filter_var($checkpointRssi,FILTER_VALIDATE_INT)===false||(int)$checkpointRssi< -200||(int)$checkpointRssi>100)throw new InvalidArgumentException('checkpoint_rssi_dbm must be -200–100');}elseif(isset($r['checkpoint_id'])||isset($r['checkpoint_rssi_dbm']))throw new InvalidArgumentException('direct reception cannot carry checkpoint relay fields');
     $rssi=$r['rssi_dbm']??null;$snr=$r['snr_db']??null;$hop=$r['relay_hop_delay_ms']??null;if($rssi!==null&&(filter_var($rssi,FILTER_VALIDATE_INT)===false||(int)$rssi< -200||(int)$rssi>100))throw new InvalidArgumentException('rssi_dbm must be -200–100');if($snr!==null&&(!is_numeric($snr)||!is_finite((float)$snr)||(float)$snr< -50||(float)$snr>50))throw new InvalidArgumentException('snr_db must be -50–50');if($hop!==null&&(filter_var($hop,FILTER_VALIDATE_INT)===false||(int)$hop<0||(int)$hop>300000))throw new InvalidArgumentException('relay_hop_delay_ms must be 0–300000');
-    $heardBy=$path==='CHECKPOINT_RELAY'?$checkpointId:$baseId;$received=$r['received_at']??gmdate('Y-m-d H:i:s');$dt=date_create((string)$received);if(!$dt)throw new InvalidArgumentException('reception.received_at must be a valid date/time');$received=$dt->format('Y-m-d H:i:s');
+    $heardBy=$path==='CHECKPOINT_RELAY'?$checkpointId:$baseId;$received=$r['received_at']??gmdate('Y-m-d H:i:s');try{$dt=new DateTimeImmutable((string)$received,new DateTimeZone('UTC'));}catch(Throwable $e){throw new InvalidArgumentException('reception.received_at must be a valid date/time');}$received=$dt->setTimezone(new DateTimeZone('UTC'))->format('Y-m-d H:i:s');
     $h=$pdo->prepare('SELECT id FROM hiker_nodes WHERE node_id=? AND is_enabled=1');$h->execute([$id]);$hiker=$h->fetchColumn();if(!$hiker)throw new InvalidArgumentException('unknown or disabled hiker node_id');
     $zone=active_zone($pdo,$siteId);$inside=$zone?point_in_polygon($lat,$lng,array_map(fn($ring)=>array_map(fn($v)=>[$v['latitude'],$v['longitude']],$ring),$zone['rings'])):null;
     $pdo->beginTransaction();try{

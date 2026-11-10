@@ -1,4 +1,12 @@
 <?php
+date_default_timezone_set('UTC');
+
+function utc_pdo(string $dsn,string $user,string $password,array $options=[]): PDO {
+    $pdo=new PDO($dsn,$user,$password,$options);
+    $pdo->exec("SET time_zone = '+00:00'");
+    return $pdo;
+}
+
 function config(): array {
     static $c = null;
     if ($c === null) {
@@ -58,7 +66,7 @@ function db(): PDO {
     static $connections=[]; $name=active_profile_name();
     if (!isset($connections[$name])) {
         $c=db_profile($name);
-        $connections[$name]=new PDO("mysql:host={$c['db_host']};dbname={$c['db_name']};charset=utf8mb4",$c['db_user'],$c['db_pass'],[
+        $connections[$name]=utc_pdo("mysql:host={$c['db_host']};dbname={$c['db_name']};charset=utf8mb4",$c['db_user'],$c['db_pass'],[
             PDO::ATTR_ERRMODE=>PDO::ERRMODE_EXCEPTION,PDO::ATTR_DEFAULT_FETCH_MODE=>PDO::FETCH_ASSOC,PDO::ATTR_EMULATE_PREPARES=>false,
         ]);
     }
