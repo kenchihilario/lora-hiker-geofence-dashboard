@@ -23,6 +23,37 @@ function packet_annotation_select(PDO $pdo): array {
         ? ['select'=>'a.intended_class,a.point_source','join'=>' LEFT JOIN packet_annotations a ON a.uplink_packet_id=p.id']
         : ['select'=>'NULL intended_class,NULL point_source','join'=>''];
 }
+function crossing_schema_available(PDO $pdo): bool { return schema_table_exists($pdo,'crossings'); }
+function crossing_utc_now(): string { return (new DateTimeImmutable('now',new DateTimeZone('UTC')))->format('Y-m-d H:i:s.v'); }
+function crossing_computed(PDO $pdo,array $crossing): array {
+    $end=$crossing['ended_at']??crossing_utc_now();
+    $q=$pdo->prepare('SELECT p.id,p.sequence_number,p.classification,p.gps_accuracy_m,p.satellite_count,p.received_at FROM uplink_packets p JOIN hiker_nodes h ON h.id=p.hiker_node_id WHERE p.session_id=? AND h.node_id=? AND p.received_at>=? AND p.received_at<=? ORDER BY p.received_at,p.id');
+    $q->execute([(int)$crossing['session_id'],$crossing['node_id'],$crossing['started_at'],$end]);$packets=$q->fetchAll();
+    $outside=[];$flips=0;$previous=null;
+    foreach($packets as $packet){$class=$packet['classification'];if($class==='OUTSIDE')$outside[]=$packet;if(in_array($class,['INSIDE','OUTSIDE'],true)){if($previous!==null&&$previous!==$class)$flips++;$previous=$class;}}
+    $reference=$outside[0]??null;$returned=null;$reportsAfterReentry=null;$reentry=$crossing['reentry_at']??null;
+    if($reentry!==null){$reportsAfterReentry=0;foreach($packets as $packet){if($packet['received_at']<=$reentry)continue;if($packet['classification']==='INSIDE'){$returned=$packet;break;}$reportsAfterReentry++;}}
+    $command=null;
+    if($reference){$q=$pdo->prepare('SELECT created_at,fetched_at,sent_at FROM downlink_commands WHERE hiker_node_id=(SELECT id FROM hiker_nodes WHERE node_id=?) AND session_id=? AND sequence_number=? ORDER BY id LIMIT 1');$q->execute([$crossing['node_id'],(int)$crossing['session_id'],(int)$reference['sequence_number']]);$command=$q->fetch()?:null;}
+    return $crossing+[
+        'reference_packet_id'=>$reference?(int)$reference['id']:null,
+        'reference_sequence_number'=>$reference?(int)$reference['sequence_number']:null,
+        'reference_gps_valid_fix'=>$reference?gps_valid_fix($reference['gps_accuracy_m'],$reference['satellite_count']):null,
+        'reference_satellite_count'=>$reference&&$reference['satellite_count']!==null?(int)$reference['satellite_count']:null,
+        'reference_gps_accuracy_m'=>$reference&&$reference['gps_accuracy_m']!==null?(float)$reference['gps_accuracy_m']:null,
+        'out_of_bounds_packet_sent'=>count($outside)>0?'Y':'N',
+        'out_of_bounds_packet_count'=>count($outside),
+        'inside_outside_flips'=>$flips,
+        'reports_after_reentry'=>$reportsAfterReentry,
+        'returned_to_safe_at'=>$returned['received_at']??null,
+        'returned_to_safe'=>$reentry===null?null:($returned?'Y':'N'),
+        'base_side_command_times'=>$command?['label'=>'Base-side command lifecycle; not alert latency','created_at'=>$command['created_at'],'fetched_at'=>$command['fetched_at'],'sent_at'=>$command['sent_at']]:null,
+    ];
+}
+function crossing_false_alert_candidates(PDO $pdo,int $sessionId): array {
+    $sql="SELECT e.id event_id,h.node_id,p.id packet_id,p.sequence_number,p.received_at packet_received_at FROM system_events e JOIN hiker_nodes h ON h.id=e.hiker_node_id JOIN uplink_packets p ON p.id=CAST(JSON_UNQUOTE(JSON_EXTRACT(e.metadata_json,'$.packet_id')) AS UNSIGNED) WHERE e.session_id=? AND e.event_type='OFF_TRAIL' AND NOT EXISTS (SELECT 1 FROM crossings c WHERE c.session_id=e.session_id AND c.node_id=h.node_id AND c.reentry_at IS NOT NULL AND p.received_at>=c.started_at AND p.received_at<=c.reentry_at) ORDER BY e.id";
+    $q=$pdo->prepare($sql);$q->execute([$sessionId]);return array_map(static fn($row)=>$row+['label'=>'FALSE-ALERT CANDIDATE (computed only; not a result)'],$q->fetchAll());
+}
 function packet_is_demo_or_test(array $data): bool {
     $u=is_array($data['uplink']??null)?$data['uplink']:[];$f=is_array($u['flags']??null)?$u['flags']:[];
     return !empty($data['is_demo'])||!empty($data['is_rehearsal'])||!empty($f['test_mode'])||!empty($data['test_mode']);
