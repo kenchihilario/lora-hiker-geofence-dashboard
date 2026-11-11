@@ -45,4 +45,12 @@ check(settings.includes("crossingNumber.max=isPartB?'5':'6'") && settings.includ
 check(settings.includes('return isPartB?null:max;') && settings.includes("All five Part B crossing numbers (1–5) are used") && settings.includes('next===null'), 'Part B with all five numbers used shows a message and disables Start');
 check(settings.includes("if(activeSessionPhase!=='PHASE3'){payload.gate_no=") && settings.includes('Crossing number must be 1–${max}'), 'Part B omits gate fields and validates its crossing number before sending');
 
+for (const id of ['marker-checks-panel','marker-check-status','marker-check-node','marker-check-gate','marker-check-type','marker-check-window','marker-check-run','marker-check-export','marker-checks-table','marker-checks-rows']) {
+  check(markup.includes(`id="${id}"`), `Settings marker-check panel includes #${id}`);
+}
+check(markup.includes('averages valid fixes received in the last N seconds') && markup.includes('window ends when you click Check marker') && markup.includes('Moved count means failed checks followed by a later check of the same marker'), 'marker-check panel explains its sample window and moved-count meaning');
+check(settings.includes("request('marker-checks'") && settings.includes('marker-checks?session_id=') && settings.includes('type=marker_checks&session_id='), 'marker-check panel uses authenticated POST, session GET, and CSV routes');
+check(settings.includes('Marker checks need migration 014') && settings.includes("schema_available!==false") && settings.includes('markerChecksEnabled') && settings.includes("markerExport?.setAttribute('aria-disabled','true')"), 'marker-check panel reports missing migration and disables writes and export without migration');
+check(settings.includes('moved_count') && settings.includes('first_packet_at') && settings.includes('last_packet_at'), 'marker-check table renders moved count and averaged-window packet times');
+
 console.log('PASS session UI state, error, and safety copy contract');

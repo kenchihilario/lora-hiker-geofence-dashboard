@@ -68,6 +68,30 @@ function demo_row_count(PDO $pdo): int {
     $sum=0;$filters=['uplink_packets'=>'is_demo=1 OR is_rehearsal=1 OR test_mode=1','system_events'=>'is_demo=1 OR is_rehearsal=1 OR test_mode=1','downlink_commands'=>'is_demo=1 OR is_rehearsal=1 OR test_mode=1','packet_receptions'=>'is_demo=1 OR is_rehearsal=1 OR test_mode=1','safe_zones'=>'is_demo=1 OR is_rehearsal=1','storm_turnback_campaigns'=>'is_demo=1 OR is_rehearsal=1 OR test_mode=1','operator_actions'=>'is_demo=1 OR is_rehearsal=1 OR test_mode=1','trail_reference_points'=>'is_demo=1'];foreach($filters as $table=>$where)$sum+=(int)$pdo->query("SELECT COUNT(*) FROM $table WHERE $where")->fetchColumn();return $sum;
 }
 function gps_valid_fix($accuracy,$satellites): bool { return $accuracy!==null&&$satellites!==null&&is_numeric($accuracy)&&(float)$accuracy<=10&&(int)$satellites>=5; }
+function marker_check_schema_available(PDO $pdo): bool { return schema_table_exists($pdo,'marker_checks'); }
+function average_valid_fixes(PDO $pdo,int $sessionId,string $nodeId,string $windowStartUtc,string $windowEndUtc): array {
+    $start=new DateTimeImmutable($windowStartUtc,new DateTimeZone('UTC'));$end=new DateTimeImmutable($windowEndUtc,new DateTimeZone('UTC'));
+    if($end<$start)throw new InvalidArgumentException('window_end must not be before window_start');
+    $q=$pdo->prepare('SELECT p.latitude,p.longitude,p.gps_accuracy_m,p.satellite_count,p.received_at FROM uplink_packets p JOIN hiker_nodes h ON h.id=p.hiker_node_id WHERE p.session_id=? AND h.node_id=? AND p.received_at>=? AND p.received_at<=? AND p.is_duplicate=0 ORDER BY p.received_at,p.id');
+    $q->execute([$sessionId,$nodeId,$start->format('Y-m-d H:i:s.v'),$end->format('Y-m-d H:i:s.v')]);$valid=[];
+    foreach($q->fetchAll() as $packet)if(gps_valid_fix($packet['gps_accuracy_m'],$packet['satellite_count']))$valid[]=$packet;
+    $count=count($valid);$latitude=null;$longitude=null;
+    if($count){ // Arithmetic means are appropriate for this small local marker area.
+        $latitude=array_sum(array_map(static fn($p)=>(float)$p['latitude'],$valid))/$count;
+        $longitude=array_sum(array_map(static fn($p)=>(float)$p['longitude'],$valid))/$count;
+    }
+    return ['valid_fix_count'=>$count,'mean_latitude'=>$latitude,'mean_longitude'=>$longitude,'first_packet_at'=>$valid[0]['received_at']??null,'last_packet_at'=>$valid[$count-1]['received_at']??null,'window_seconds'=>max(0,$end->getTimestamp()-$start->getTimestamp())];
+}
+function marker_checks_with_moved_count(array $rows): array {
+    $groups=[];foreach($rows as $index=>$row){$key=implode("\0",[(string)$row['session_id'],(string)$row['node_id'],(string)$row['gate_no'],(string)$row['marker_type']]);$groups[$key][]=$index;}
+    foreach($groups as $indices){$moved=0;foreach($indices as $position=>$index)if(empty($rows[$index]['matches_intended'])&&$position<count($indices)-1)$moved++;foreach($indices as $index)$rows[$index]['moved_count']=$moved;}
+    return $rows;
+}
+function marker_checks_for_session(PDO $pdo,int $sessionId,string $siteId): array {
+    $q=$pdo->prepare('SELECT m.* FROM marker_checks m JOIN test_sessions s ON s.id=m.session_id WHERE m.session_id=? AND s.site_id=? ORDER BY m.node_id,m.gate_no,m.marker_type,m.created_at,m.id');$q->execute([$sessionId,$siteId]);$rows=$q->fetchAll();
+    foreach($rows as &$row){$window=average_valid_fixes($pdo,(int)$row['session_id'],$row['node_id'],$row['window_start'],$row['window_end']);$row['id']=(int)$row['id'];$row['session_id']=(int)$row['session_id'];$row['gate_no']=(int)$row['gate_no'];$row['window_seconds']=(int)$row['window_seconds'];$row['valid_fix_count']=(int)$row['valid_fix_count'];$row['matches_intended']=(bool)$row['matches_intended'];$row['mean_latitude']=$row['mean_latitude']===null?null:(float)$row['mean_latitude'];$row['mean_longitude']=$row['mean_longitude']===null?null:(float)$row['mean_longitude'];$row['first_packet_at']=$window['first_packet_at'];$row['last_packet_at']=$window['last_packet_at'];}
+    unset($row);return marker_checks_with_moved_count($rows);
+}
 final class SafeZoneLoopGuardException extends InvalidArgumentException {}
 function safe_zone_inner_probe(array $ring): ?array {
     if(count($ring)<3)return null;
