@@ -28,6 +28,7 @@ try{
   $status=suite_run([PHP_BINARY,$root.'/tests/crossings_scratch_test.php',$baseUrl],$root,$env);if($status!==0)$failed[]='crossings_scratch_test.php';
   $status=suite_run([PHP_BINARY,$root.'/tests/packet_annotations_scratch_test.php',$baseUrl],$root,$env);if($status!==0)$failed[]='packet_annotations_scratch_test.php';
   $status=suite_run([PHP_BINARY,$root.'/tests/simulator_reply_lifecycle_test.php',$baseUrl],$root,$env);if($status!==0)$failed[]='simulator_reply_lifecycle_test.php';
+  $status=suite_run([PHP_BINARY,$root.'/tests/simulator_phase1_replay_test.php',$baseUrl],$root,$env);if($status!==0)$failed[]='simulator_phase1_replay_test.php';
   foreach(['gpx_corridor_test.js','gpx_ring_test.js','bench_time_test.js','dashboard_utc_timestamp_test.js','dashboard_map_labels_test.js','dashboard_packet_log_contract_test.js','live_empty_dashboard_test.js','session_ui_contract_test.js','offline_static_test.js'] as $test){$status=suite_run(['node',$root.'/tests/'.$test],$root,$env);if($status!==0)$failed[]=$test;}
   $pshell=getenv('SystemRoot').'\\System32\\WindowsPowerShell\\v1.0\\powershell.exe';$status=suite_run([$pshell,'-NoProfile','-ExecutionPolicy','Bypass','-File',$root.'/tests/site_safe_zone_smoke.ps1','-BaseUrl',$baseUrl.'/api','-Database',$name],$root,$env);if($status!==0)$failed[]='site_safe_zone_smoke.ps1';
   // Give the integration harness an isolated LIVE mode file; its LIVE DB profile is still scratch-only.
