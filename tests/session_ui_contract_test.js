@@ -5,6 +5,7 @@ const settings = fs.readFileSync('public/assets/js/site-settings.js', 'utf8');
 const dashboard = fs.readFileSync('public/assets/js/dashboard.js', 'utf8');
 const markup = fs.readFileSync('public/settings.php', 'utf8');
 const index = fs.readFileSync('public/index.php', 'utf8');
+const css = fs.readFileSync('public/assets/css/dashboard.css', 'utf8');
 function check(condition, label) {
   if (!condition) {
     console.error(`FAIL ${label}`);
@@ -38,5 +39,10 @@ check(settings.includes('Crossings need migration 013') && settings.includes('sc
 check(settings.includes("request(`crossings?session_id=") && settings.includes("request('crossings/start'") && settings.includes("crossings/${current.id}/${action}") && settings.includes("request(`crossings/${form.dataset.id}`"), 'crossing panel uses the existing list, start, re-entry/end, and edit routes');
 check(settings.includes('TrailwatchUtcTime?.parseDatabaseUtc') && /utc-time\.js\?v=\d+/.test(markup), 'crossing UTC timestamps use the shared local-time formatter with a cache-busted script');
 check(settings.includes('duplicate_gate_warning') && settings.includes('error.message') && settings.includes('sample SD'), 'crossing UI surfaces server warnings/errors and labels manual latency statistics');
+check(settings.includes("crossingGateWrap.hidden=isPartB;crossingSideWrap.hidden=isPartB") && settings.includes("const isPartB=activeSessionPhase==='PHASE3'"), 'crossing gate visibility follows the active session phase');
+check(css.includes('.settings-card label[hidden]{display:none!important}'), 'hidden crossing labels remain hidden despite settings label layout styles');
+check(settings.includes("crossingNumber.max=isPartB?'5':'6'") && settings.includes("const isPartB=activeSessionPhase==='PHASE3',max=isPartB?5:6"), 'Part B crossing numbers are limited to 1–5 while other phases retain the existing 1–6 limit');
+check(settings.includes('return isPartB?null:max;') && settings.includes("All five Part B crossing numbers (1–5) are used") && settings.includes('next===null'), 'Part B with all five numbers used shows a message and disables Start');
+check(settings.includes("if(activeSessionPhase!=='PHASE3'){payload.gate_no=") && settings.includes('Crossing number must be 1–${max}'), 'Part B omits gate fields and validates its crossing number before sending');
 
 console.log('PASS session UI state, error, and safety copy contract');
