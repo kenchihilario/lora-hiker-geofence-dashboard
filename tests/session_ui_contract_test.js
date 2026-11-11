@@ -16,6 +16,7 @@ function check(condition, label) {
 
 check(/await loadRegistry\(\);\s*await loadTestSession\(\);/.test(settings), 'changing the selected site refreshes the active-session status');
 check(settings.includes('${s.site_id}') && settings.includes('s.phase?'), 'active-session status includes site and phase');
+check(settings.includes('const sessionSummary=') && settings.includes('sessionLabel.replaceChildren(message)') && settings.includes('window.TrailwatchUtcTime?.parseDatabaseUtc(String(s.started_at))') && settings.includes('startedTime.title=`UTC: ${s.started_at}`') && settings.includes('startedTime.textContent=date.toLocaleString()') && settings.includes('startedTime.textContent=String(s.started_at)'), 'active-session start time renders locally with UTC title and a safe raw-value fallback');
 check(settings.includes('setSessionStatus(`Could not start session: ${error.message}`,true)'), 'session start failures appear in the session status panel');
 check(/NO ACTIVE SESSION[^`]*HTTP 409/.test(settings), 'empty session status explains that uplinks are rejected with HTTP 409');
 check(settings.includes('startButton.disabled=!data.session_schema_available'), 'session start control is disabled when migration 010 is absent');
