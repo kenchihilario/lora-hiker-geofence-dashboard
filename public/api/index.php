@@ -137,6 +137,18 @@ try {
     if(active_mode()!=='LIVE')respond(['error'=>'Existing packet classification is available only in LIVE mode'],409);
     respond(mark_packet_range_bench($pdo,body()));
   }
+ if($method==='GET'&&$path==='/export.csv'&&($_GET['type']??'')==='crossings'){
+   $sessionRaw=$_GET['session_id']??null;$sessionId=$sessionRaw===null?null:filter_var($sessionRaw,FILTER_VALIDATE_INT);if($sessionId===false)throw new InvalidArgumentException('session_id must be a positive integer');
+   if($sessionId===null){$active=active_test_session($pdo,selected_site($pdo));$sessionId=$active?(int)$active['id']:null;}
+   if(!$sessionId)respond(['error'=>'an active test session is required to export crossings'],409);
+   $q=$pdo->prepare('SELECT id FROM test_sessions WHERE id=? AND site_id=?');$q->execute([$sessionId,selected_site($pdo)]);if(!$q->fetchColumn())respond(['error'=>'test session not found for selected site'],404);
+   if(!crossing_schema_available($pdo))respond(['error'=>'Crossings need migration 013 before exporting crossing records.'],503);
+   $q=$pdo->prepare('SELECT c.*,s.site_id,s.label session_label,s.phase FROM crossings c JOIN test_sessions s ON s.id=c.session_id WHERE c.session_id=? ORDER BY c.node_id,c.crossing_no');$q->execute([$sessionId]);$rows=array_map(static fn($row)=>crossing_computed($pdo,$row),$q->fetchAll());$candidates=crossing_false_alert_candidates($pdo,(int)$sessionId);$candidateByNode=[];foreach($candidates as $candidate)$candidateByNode[$candidate['node_id']]=($candidateByNode[$candidate['node_id']]??0)+1;
+   header_remove('Content-Type');header('Content-Type: text/csv; charset=utf-8');header('Content-Disposition: attachment; filename="trailwatch-crossings-session-'.$sessionId.'.csv"');$out=fopen('php://output','w');
+   fputcsv($out,['crossing','crossing_point','valid_fix_at_crossing','satellites','accuracy_m','out_of_bounds_packet_sent','alert_latency_s (MANUAL)','alarm_screen_on (MANUAL)','back_to_safe','reports_after_reentry','remarks','session_id','node_id','crossing_no','started_at','reentry_at','ended_at','reference_sequence','returned_to_safe_at','alert_noticed','alert_understood','false_alert_candidate','command_created_at','command_fetched_at','command_sent_at']);
+   foreach($rows as $r){$point=$r['gate_no']===null?'':('Gate '.$r['gate_no'].' '.$r['gate_side']);$fix=$r['reference_gps_valid_fix']===null?'':($r['reference_gps_valid_fix']?'Y':'N');$command=$r['base_side_command_times']??[];$candidateCount=$candidateByNode[$r['node_id']]??0;$candidate=$candidateCount?'Y ('.$candidateCount.' event(s) outside all crossing windows)':'N';fputcsv($out,[$r['crossing_no'],$point,$fix,$r['reference_satellite_count'],$r['reference_gps_accuracy_m'],$r['out_of_bounds_packet_sent'],$r['alert_latency_s'],$r['alarm_screen_on'],$r['returned_to_safe'],$r['reports_after_reentry'],$r['remarks'],$r['session_id'],$r['node_id'],$r['crossing_no'],$r['started_at'],$r['reentry_at'],$r['ended_at'],$r['reference_sequence_number'],$r['returned_to_safe_at'],$r['alert_noticed'],$r['alert_understood'],$candidate,$command['created_at']??null,$command['fetched_at']??null,$command['sent_at']??null]);}
+   fclose($out);exit;
+ }
  if($method==='GET'&&$path==='/export.csv'){
    $type=$_GET['type']??'packets';if(!in_array($type,['packets','events'],true))throw new InvalidArgumentException('type must be packets or events');
    header_remove('Content-Type');header('Content-Type: text/csv; charset=utf-8');header('Content-Disposition: attachment; filename="trailwatch-'.$type.'.csv"');$out=fopen('php://output','w');

@@ -121,3 +121,5 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{ou
 .attention-stack{display:grid;align-content:start;gap:12px;min-width:0}
 .attention-stack>.panel{min-width:0}
 @media(max-width:900px){.api-error{grid-area:error}.database-check-inline{grid-area:database}.map-panel{grid-area:map}.attention-stack{grid-area:attention}.hikers-panel{grid-area:hikers}.packet-log-panel{grid-area:packets}.attention-stack>.alert-panel,.attention-stack>.storm-panel{grid-row:auto;grid-column:auto}}
+
+.crossings-table-wrap{overflow-x:auto;max-width:100%}.crossings-table-wrap table{min-width:1500px;border-collapse:collapse}.crossings-table-wrap th,.crossings-table-wrap td{vertical-align:top;padding:7px;border-bottom:1px solid var(--border);font-size:11px}.crossings-table-wrap th{white-space:normal;min-width:90px}.crossings-table-wrap textarea{min-width:140px;min-height:48px}.crossings-table-wrap input,.crossings-table-wrap select{min-width:75px}

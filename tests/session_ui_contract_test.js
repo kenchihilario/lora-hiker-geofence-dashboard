@@ -31,4 +31,12 @@ for (const id of ['packet-annotation-panel','packet-annotation-summary','packet-
 check(settings.includes("request(`annotations/summary?session_id=") && settings.includes("request('annotations/range'") && settings.includes('annotationSessionId.value=sessionId'), 'annotation summary and range actions use the active session by default');
 check(settings.includes("'No active test session. Start a session to annotate its packets.'") && settings.includes('Packet annotations require migration 012'), 'annotation UI disables writes without a session or migration 012');
 
+for (const id of ['crossings-panel','crossings-status','crossing-node','crossing-number','crossing-gate','crossing-side','crossing-start','crossing-reentry','crossing-end','crossings-table','crossings-rows','crossings-summary','crossing-export']) {
+  check(markup.includes(`id="${id}"`), `Settings crossing panel includes #${id}`);
+}
+check(settings.includes('Crossings need migration 013') && settings.includes('schema_available!==false'), 'pre-013 crossing reads show a plain migration message and disable controls');
+check(settings.includes("request(`crossings?session_id=") && settings.includes("request('crossings/start'") && settings.includes("crossings/${current.id}/${action}") && settings.includes("request(`crossings/${form.dataset.id}`"), 'crossing panel uses the existing list, start, re-entry/end, and edit routes');
+check(settings.includes('TrailwatchUtcTime?.parseDatabaseUtc') && /utc-time\.js\?v=\d+/.test(markup), 'crossing UTC timestamps use the shared local-time formatter with a cache-busted script');
+check(settings.includes('duplicate_gate_warning') && settings.includes('error.message') && settings.includes('sample SD'), 'crossing UI surfaces server warnings/errors and labels manual latency statistics');
+
 console.log('PASS session UI state, error, and safety copy contract');
