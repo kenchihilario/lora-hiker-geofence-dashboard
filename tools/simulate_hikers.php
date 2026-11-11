@@ -2,7 +2,7 @@
 require_once __DIR__.'/../src/db.php';
 
 function simulate_usage(): never {
-    fwrite(STDERR,"Usage: php tools/simulate_hikers.php --scenario=normal_walk [--base-url=http://127.0.0.1:8000/api] OR --scenario=phase1_replay [--inside-count=10] [--outside-count=5] [--annotate] OR --gpx=file.gpx [--speed=1]\n");
+    fwrite(STDERR,"Usage: php tools/simulate_hikers.php --scenario=normal_walk [--base-url=http://127.0.0.1:8000/api] OR --scenario=phase1_replay [--inside-count=10] [--outside-count=5] [--annotate] OR --scenario=return_to_safe [--return-delay-s=15] OR --gpx=file.gpx [--speed=1]\n");
     exit(2);
 }
 
@@ -47,7 +47,15 @@ function phase1_replay_steps(array $zone,int $insideCount,int $outsideCount,int 
     return $steps;
 }
 
-$args=getopt('', ['scenario:','gpx:','speed:','base-url:','inside-count:','outside-count:','start-sequence:','annotate']);
+function return_to_safe_steps(array $zone,int $sequenceStart=61000): array {
+    $geometry=phase1_replay_steps($zone,5,5,$sequenceStart);
+    $inside=array_slice($geometry,0,5);$outside=array_slice($geometry,5,5);$steps=[];
+    foreach($outside as $point){$point['sequence_number']=$sequenceStart+count($steps);$steps[]=$point;}
+    foreach($inside as $point){$point['sequence_number']=$sequenceStart+count($steps);$steps[]=$point;}
+    return $steps;
+}
+
+$args=getopt('', ['scenario:','gpx:','speed:','base-url:','inside-count:','outside-count:','start-sequence:','return-delay-s:','annotate']);
 if(!simulator_allowed(active_mode())){fwrite(STDERR,"Simulator refused: active mode is LIVE.\n");exit(3);}
 $url=(string)($args['base-url']??'http://127.0.0.1:8000/api');$parts=parse_url($url);
 if(!$parts||!in_array(strtolower((string)($parts['host']??'')),['127.0.0.1','localhost','::1'],true)){fwrite(STDERR,"Simulator target must be a local loopback API URL.\n");exit(2);}
@@ -92,6 +100,18 @@ try {
         }
         if($mismatches>0)throw new RuntimeException("$mismatches replay packet(s) classified differently from the intended class.");
         echo 'Phase 1 replay complete: '.count($steps).' packets; all intended and returned classifications agree. No radio delivery is implied.'."\n";
+    }elseif(($args['scenario']??'')==='return_to_safe'){
+        $delayRaw=$args['return-delay-s']??'15';$delay=filter_var($delayRaw,FILTER_VALIDATE_INT);if($delay===false||$delay<0)throw new InvalidArgumentException('--return-delay-s must be a nonnegative integer');
+        $zoneContext=stream_context_create(['http'=>['header'=>"X-Bridge-Token: $token\r\n",'ignore_errors'=>true,'timeout'=>5]]);$zoneRaw=file_get_contents(rtrim($url,'/').'/safe-zone',false,$zoneContext);$zoneStatus=$http_response_header[0]??'No HTTP response';
+        if($zoneRaw===false)throw new RuntimeException('Could not read the active safe zone from GET /api/safe-zone');$zoneResult=json_decode($zoneRaw,true);
+        if(str_contains($zoneStatus,' 4')||str_contains($zoneStatus,' 5'))throw new RuntimeException('GET /api/safe-zone failed: '.($zoneResult['error']??$zoneStatus));
+        $zone=$zoneResult['safe_zone']??null;if(!$zone)throw new RuntimeException('The selected site has no active safe zone; nothing was sent.');
+        $steps=return_to_safe_steps($zone,61000);$mismatches=0;
+        foreach(array_slice($steps,0,5) as $step){$result=$send($packet((int)$step['sequence_number'],(float)$step['latitude'],(float)$step['longitude'],['test_mode'=>true]));$classification=(string)($result['classification']??'UNKNOWN');echo 'Sequence '.$step['sequence_number'].' | intended '.$step['intended_class'].' | classified '.$classification."\n";if($classification!==$step['intended_class'])$mismatches++;}
+        echo 'Pause before the inside reports: press "Mark re-entry" now.'.($delay===0?' (no pause configured)':'')."\n";if($delay>0)sleep($delay);
+        foreach(array_slice($steps,5,5) as $step){$result=$send($packet((int)$step['sequence_number'],(float)$step['latitude'],(float)$step['longitude'],['test_mode'=>true]));$classification=(string)($result['classification']??'UNKNOWN');echo 'Sequence '.$step['sequence_number'].' | intended '.$step['intended_class'].' | classified '.$classification."\n";if($classification!==$step['intended_class'])$mismatches++;}
+        if($mismatches>0)throw new RuntimeException("$mismatches return-to-safe packet(s) classified differently from the intended class.");
+        echo 'Return-to-safe scenario complete: 5 OUTSIDE then 5 INSIDE packets. No radio delivery is implied.'."\n";
     }elseif(isset($args['scenario'])){
         $file=__DIR__.'/scenarios/'.basename((string)$args['scenario']).'.json';if(!is_file($file))throw new RuntimeException('Scenario not found');$scenario=json_decode(file_get_contents($file),true,512,JSON_THROW_ON_ERROR);
         foreach($scenario as $step){$flags=$step['flags']??[];$send($packet((int)$step['sequence_number'],(float)$step['latitude'],(float)$step['longitude'],$flags,(string)($step['path_type']??'DIRECT')));usleep((int)($step['delay_ms']??0)*1000);}
