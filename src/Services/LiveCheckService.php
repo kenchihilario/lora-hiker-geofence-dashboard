@@ -54,7 +54,7 @@ function collect_live_check_facts(PDO $pdo,array $config,string $projectRoot): a
 
     $q=$pdo->prepare("SELECT setting_value FROM app_settings WHERE setting_key='selected_site'");$q->execute();$site=(string)($q->fetchColumn()?:'');$facts['site_id']=isset(site_config()[$site])?$site:null;
     if($facts['site_id']&&test_session_schema_available($pdo))$facts['active_test_session']=active_test_session($pdo,$site)?:false;
-    $q=$pdo->prepare('SELECT COUNT(*) FROM hiker_nodes WHERE is_enabled=1');$facts['hiker_count']=(int)$q->fetchColumn();
+    $q=$pdo->prepare('SELECT COUNT(*) FROM hiker_nodes WHERE is_enabled=1');$q->execute();$facts['hiker_count']=(int)$q->fetchColumn();
     $facts['node_site_scoped']=schema_column_exists($pdo,'network_nodes','site_id');
     foreach(['BASE_CAMP'=>'base','CHECKPOINT'=>'checkpoint'] as $type=>$prefix){$sql='SELECT COUNT(*),COALESCE(SUM(latitude IS NOT NULL AND longitude IS NOT NULL),0) FROM network_nodes WHERE node_type=? AND is_enabled=1'.($facts['node_site_scoped']?' AND site_id=?':'');$q=$pdo->prepare($sql);$q->execute($facts['node_site_scoped']?[$type,$site]:[$type]);[$count,$located]=$q->fetch(PDO::FETCH_NUM);$facts[$prefix.'_present']=(int)$count>0;$facts[$prefix.'_located']=(int)$located>0;}
     $q=$pdo->prepare('SELECT COUNT(*) FROM safe_zones WHERE is_active=1 AND site_id=?');$q->execute([$site]);$facts['safe_zone_active']=(int)$q->fetchColumn()>0;
