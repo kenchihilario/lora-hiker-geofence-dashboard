@@ -2,7 +2,7 @@
 
 **Reviewed:** 2026-11-12
 **Project:** `D:\Projects for PC\Thesis\Dashboard-work`
-**Branch:** `mydays/session-fix-merge` (pushed to GitHub; latest commit `dfd8f88` "Add position error checks (migration 015)")
+**Branch:** `mydays/session-fix-merge` (pushed to GitHub; latest commit `cd3a844`; the serial bridge is `5fed06d`, the docs update `e910fa5`, and position error checks (migration 015) `dfd8f88`)
 **Scope:** Dashboard, PHP API/backend, MariaDB schema/migrations, local tooling, and dashboard-relevant research proposal requirements. This report is based on the current checked-out source and test runner; it does not claim the hardware has been tested. No credentials or tokens are included. Facts about the LIVE database come from output the operator pasted; this report did not connect to LIVE.
 
 ## Status labels
@@ -37,7 +37,8 @@
 | `sql/schema.sql`, `sql/demo_seed.sql`, `sql/migrations/` | Schema-only initialization, demo seed, and fifteen ordered migrations; 008 adds safe-zone rings, 009 BENCH classification, 010 sessions, 011 safe-zone metadata, 012 packet annotations, 013 crossing records, 014 marker checks, and 015 position error checks. |
 | `tools/setup_db.php`, `migrate_db.php`, `backup_db.php`, `live_check.php` | DB setup, migration, timestamped backup, and read-only LIVE readiness check. |
 | `tools/simulate_hikers.php`, `tools/scenarios/` | DEMO-only logical-packet simulator and scenarios (JSON scenarios plus built-in `phase1_replay` and `return_to_safe`); it does not simulate radio hardware. |
-| `tests/` | PHP, JavaScript, PowerShell, API smoke, and isolated scratch-LIVE integration tests. |
+| `tools/serial_bridge.py`, `tools/fake_esp32.py` | Laptop-side ASCII line bridge (U lines in, D lines out) that posts to the bridge API, and a fake ESP32 line generator for DEMO tests without hardware. Not firmware. |
+| `tests/` | PHP, JavaScript, PowerShell, Python (`serial_bridge_test.py`), API smoke, and isolated scratch-LIVE integration tests. |
 | `docs/CODEX_WEBSITE_SPEC.md`, `docs/CHAPTER4_DATA.md`, `docs/PHONE_LINK_OPTIONS.md` | Requirements copy and data/phone planning notes. The paper remains unchanged. |
 
 ## 2. Architecture and completed behavior
@@ -64,7 +65,9 @@ False-alert output is explicitly a **candidate only**: an OFF_TRAIL event whose 
 
 **IMPLEMENTED AND TESTED — link loss, SOS, and storm controls.** API reads mark a hiker `LINK_LOST` after 15 seconds without an uplink and retain its last packet position and receptions; dashboard renders state, battery, report age and last heard by (`public/api/index.php:63,73-75`; `public/assets/js/dashboard.js`). Emergency uplinks create an emergency event and SOS reply; an outside-zone SOS also retains an OFF_TRAIL event (`src/Services/ApiService.php:125-170`; `tests/api_smoke.php:66`). Storm campaigns repeat on eligible reply slots until receipt flag or operator cancellation; Phase 2 disables them (`public/api/index.php:94-101`; service; `tests/api_smoke.php:52-58,71-74`). The “alarm” is an event/alert shown in the app; no sounder or physical alarm has been verified.
 
-**BLOCKED (waiting on hardware/firmware/site data) — physical bridge.** No ESP32 firmware, actual LoRa radio driver, Android application, or USB serial bridge is implemented. Packet byte sizes, radio encoding, serial framing, and real receive behavior are intentionally unspecified and remain firmware-owned. No real device delivery is claimed.
+**IMPLEMENTED AND TESTED (software only, DEMO) — laptop serial line bridge.** `tools/serial_bridge.py` reads one ASCII `U` line per heard uplink (from `--stdin`, or from a serial port with `--port` and pyserial, which is untested), posts it to `POST /api/bridge/ingest` as an `uplink` plus a `reception` object, and, when the response holds a command, writes one `D` line (`D,node_id,sequence_answered,command_type`) back before reporting `SENT_TO_BASE` to `POST /api/commands/{id}/status`. The `U` line is `U,node_id,sequence,latitude,longitude,accuracy_m,satellites,battery,flags,path[,rssi_dbm[,snr_db[,checkpoint_id[,checkpoint_rssi_dbm[,relay_hop_delay_ms]]]]]`, with `flags` as five 0/1 characters in the order link_lost, low_battery, emergency, turn_back_received, test_mode. The command types are the dashboard's own names: `ACK`, `OFF_TRAIL_ALERT`, `SOS_ACK`, `STORM_TURN_BACK`. The bridge accepts only loopback `http://` URLs, reads the bridge token from the environment variable `TRAILWATCH_BRIDGE_TOKEN` and never prints it, logs one line per packet to stderr (including the milliseconds from line read to `D` line written), and keeps going after HTTP 400, 401, 409, 422 and 500. `tools/fake_esp32.py` prints fake `U` lines. `tests/serial_bridge_test.py` gave 27 PASS / 0 FAIL against a local stub HTTP server (it is not part of the PHP suite count). A real DEMO run (sequences 1 to 4 and 200 to 201) returned HTTP 201 for every packet with the expected `D` lines and 84 to 120 ms from line read to `D` line; this is localhost and the laptop side only, so the serial link, radio and relay hop will add time on the real system. The line format is a proposal for the USB link only. It is not the over-the-air format, and the firmware owner has not yet confirmed it or the baud rate (115200 is a placeholder). Radio settings come from proposal Table 9 (915 MHz, SF9, 125 kHz bandwidth, coding rate 4/5, 14 dBm) and are applied by the firmware, not by this bridge.
+
+**BLOCKED (waiting on hardware/firmware/site data) — physical path.** No ESP32 firmware, actual LoRa radio driver, or Android application is implemented, and the laptop bridge above has not been run with a real serial port. Over-the-air packet sizes and radio encoding remain firmware-owned (Table 8 sizes are planned values). No real device delivery is claimed.
 
 ## 3. API and access control
 
@@ -175,6 +178,7 @@ Included test files cover:
 - DB safety/isolated behavior: `clear_demo_scratch_test.php`, `live_schema_scratch_test.php`, `migration_scratch_test.php`, `bench_scratch_test.php`, `live_first_run_scratch_test.php`.
 - API and pages: `api_smoke.php`, `crossings_scratch_test.php`, `marker_checks_scratch_test.php`, `position_error_scratch_test.php`, `packet_annotations_scratch_test.php`, `test_sessions_scratch_test.php`, `simulator_reply_lifecycle_test.php`, `site_safe_zone_smoke.ps1`.
 - Browser logic/static contracts: `gpx_corridor_test.js`, `gpx_ring_test.js`, `bench_time_test.js`, `dashboard_map_labels_test.js`, `dashboard_packet_log_contract_test.js`, `live_empty_dashboard_test.js`, `session_ui_contract_test.js`, `offline_static_test.js`.
+- Python (run separately with `python tests\serial_bridge_test.py`, not part of `run_scratch_suite.php`): `serial_bridge_test.py`, 27 PASS / 0 FAIL, local stub HTTP server only.
 - Ring persistence/geofence integration: `ring_zone_scratch_test.php` creates and drops its own ring and pre-008 scratch databases.
 
 The suite creates/drops scratch databases and launches only loopback test servers. Use `docs/LIVE_FIRST_RUN.md` for the read-only readiness workflow; back up before any schema migration.
@@ -209,18 +213,21 @@ The suite creates/drops scratch databases and launches only loopback test server
 14. **Low — test data for averaged checks:** `phase1_replay` spreads INSIDE points around the ring edge, so their average falls in the middle of the oval (OUTSIDE) and an INSIDE marker check fails by design. Position error needs packets at one location (for example a small GPX with identical points). The simulator restarts sequence numbers at 1 on every run, so use one run per session; a rerun in the same session is flagged duplicate and excluded from the windows.
 15. **Low — not built:** D9 freeze warning when saving a safe-zone version during an active PHASE2/PHASE3 session, D11 "link lost since" (last reception plus 15 s, derived), P9 GPS fix stability, the optional absolute position error at a known point, and field-side replay points. Build only what the paper needs.
 16. **Medium — local MariaDB incident (2026-11-12):** `mysqld` hung on corrupted replication metadata files (`master*.info`, `relay-log*.info`, `mysql-relay-bin*`) in `C:\xampp\mysql\data`; cause unverified, probably from the earlier Aria recovery and forced kills. The files were moved, not deleted, to `D:\mysql-replication-junk-20261112` and `D:\mysql-replication-junk-20261112b` (keep both). If it happens again, read the `mysqld` console output and check which `php.exe` processes hold connections before killing anything, and never run the suite while MariaDB is unhealthy.
+17. **Medium — USB line format not confirmed:** the `U`/`D` line format is a proposal for the laptop-to-ESP32 link; the firmware owner has not confirmed it, the baud rate (115200 is only a placeholder) or the `--port` path with pyserial.
+18. **Low — bridge timing is partial:** 84 to 120 ms is the laptop side on localhost only. The Hiker Node listens 2 s for a reply (Table 9), and that window also has to cover the serial link, the radio and, through a Checkpoint, the relay hop. Measure it with the real boards.
+19. **Low — PowerShell pipe BOM:** Windows PowerShell puts a UTF-8 BOM at the start of piped text; the bridge reads stdin as `utf-8-sig` so the first line is not rejected. A real serial port does not send a BOM.
 
 ## 12. Not finished / blocked
 
 **BLOCKED (waiting on hardware/firmware/site data)**
 
-- ESP32 firmware, actual LoRa delivery, relay forwarding, and USB serial bridge.
-- Final firmware-owned packet sizes, binary encoding and serial framing.
+- ESP32 firmware, actual LoRa delivery, relay forwarding, and real serial-port testing of the laptop bridge (the bridge exists and is DEMO-tested with a fake generator only).
+- Final firmware-owned packet sizes and binary encoding; the USB line format is a proposal awaiting the firmware owner.
 - Phone-to-hiker GPS transfer, hiker SOS/inactivity detection, screen/vibration/audio warning, turn-back receipt, and hiker receive-window timings.
 - Surveyed PUP boundary, Balagbag GPX/corridor, checkpoint/base locations, and Mapalad route/reference locations.
 - Field measurements for delivery denominator, position error ground truth, battery life, wrong-node receptions, and phone alert timestamps.
 - Hardware acceptance testing and any claim of outdoor/radio readiness.
-- The Android phone app (`HikerPhoneApp`) is not touched by this work, and the hiker packet format and serial framing for a Python bridge are not defined; propose a minimal line format for approval before any bridge is written.
+- The Android phone app (`HikerPhoneApp`) is not touched by this work.
 - Operator-side LIVE setup: a real walked PUP lap, real Base Camp and Checkpoint coordinates, and the node ID the hardware sends (N1 or N2).
 
 ## 13. Suggested next steps
@@ -229,7 +236,7 @@ The suite creates/drops scratch databases and launches only loopback test server
 2. Take a fresh LIVE backup, then apply migration 015 to LIVE as the last supervised step (see section 4), then switch the dashboard back to DEMO.
 3. Start a LIVE test session only when real testing begins. Use a BENCH session with the Bench switch for bench work, and verify the switch is OFF before scored field collection.
 4. Decide with the paper whether the tape or measuring wheel will be used for position error, and which of the items in known issue 15 the paper really needs.
-5. Agree the packet and serial contract with the firmware owners without assuming sizes or framing; then write and bench-test the bridge when hardware exists.
+5. Send the USB `U`/`D` line format to the firmware owner and ask them to confirm it and the baud rate. When the boards arrive, run the radio self-test, then test the bridge with a real serial port (needs pyserial) and measure the real reply time against the 2 s window.
 6. Capture the manual measurement fields from the proposal sheets (timing, alerts, battery, wrong-node observations).
 7. Merge to `main` later, after `git worktree list` and after LIVE has the final schema. Never force-push.
 
@@ -248,5 +255,6 @@ The suite creates/drops scratch databases and launches only loopback test server
 | Bench-data research classification | **IMPLEMENTED AND TESTED** | BENCH is stored per packet and excluded from research counts; switch/range actions are audited. |
 | Phase 2/3 crossing records | **IMPLEMENTED AND TESTED** | Migration 013, audited operator APIs, packet-time computed crossing fields, manual alert observations, and candidate-only false-alert field. |
 | Marker checks and position error (Phase 2) | **IMPLEMENTED AND TESTED** | Migrations 014 and 015, operator-stamped windows, labelled error summary, CSV exports. 015 is on DEMO only; needs real tape or wheel distances. |
+| USB line bridge (laptop side) | **IMPLEMENTED AND TESTED** | DEMO only, with a fake generator and a stub server (27 PASS) and one real DEMO run. Real serial port, firmware and radio timing are untested; the line format awaits the firmware owner. |
 | Real radio/phone/hardware path | **BLOCKED (waiting on hardware/firmware/site data)** | Firmware, physical hardware and field observations pending. |
 | Surveyed trail/site configuration | **BLOCKED (waiting on hardware/firmware/site data)** | Needed coordinates and verified boundaries are incomplete. |
