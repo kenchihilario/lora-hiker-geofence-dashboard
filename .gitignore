@@ -9,3 +9,4 @@ config.php
 /data/rejections.log
 /backups/
 /data/operator.json
+__pycache__/
