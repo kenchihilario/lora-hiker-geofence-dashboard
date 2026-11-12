@@ -27,6 +27,7 @@ try{
   $status=suite_run([PHP_BINARY,$root.'/tests/api_smoke.php',$baseUrl,$token],$root,$env);if($status!==0)$failed[]='api_smoke.php';
   $status=suite_run([PHP_BINARY,$root.'/tests/crossings_scratch_test.php',$baseUrl],$root,$env);if($status!==0)$failed[]='crossings_scratch_test.php';
   $status=suite_run([PHP_BINARY,$root.'/tests/marker_checks_scratch_test.php',$baseUrl],$root,$env);if($status!==0)$failed[]='marker_checks_scratch_test.php';
+  $status=suite_run([PHP_BINARY,$root.'/tests/position_error_scratch_test.php',$baseUrl],$root,$env);if($status!==0)$failed[]='position_error_scratch_test.php';
   $status=suite_run([PHP_BINARY,$root.'/tests/packet_annotations_scratch_test.php',$baseUrl],$root,$env);if($status!==0)$failed[]='packet_annotations_scratch_test.php';
   $status=suite_run([PHP_BINARY,$root.'/tests/simulator_reply_lifecycle_test.php',$baseUrl],$root,$env);if($status!==0)$failed[]='simulator_reply_lifecycle_test.php';
   $status=suite_run([PHP_BINARY,$root.'/tests/simulator_phase1_replay_test.php',$baseUrl],$root,$env);if($status!==0)$failed[]='simulator_phase1_replay_test.php';

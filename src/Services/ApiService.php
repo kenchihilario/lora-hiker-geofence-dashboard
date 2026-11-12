@@ -92,6 +92,25 @@ function marker_checks_for_session(PDO $pdo,int $sessionId,string $siteId): arra
     foreach($rows as &$row){$window=average_valid_fixes($pdo,(int)$row['session_id'],$row['node_id'],$row['window_start'],$row['window_end']);$row['id']=(int)$row['id'];$row['session_id']=(int)$row['session_id'];$row['gate_no']=(int)$row['gate_no'];$row['window_seconds']=(int)$row['window_seconds'];$row['valid_fix_count']=(int)$row['valid_fix_count'];$row['matches_intended']=(bool)$row['matches_intended'];$row['mean_latitude']=$row['mean_latitude']===null?null:(float)$row['mean_latitude'];$row['mean_longitude']=$row['mean_longitude']===null?null:(float)$row['mean_longitude'];$row['first_packet_at']=$window['first_packet_at'];$row['last_packet_at']=$window['last_packet_at'];}
     unset($row);return marker_checks_with_moved_count($rows);
 }
+function position_error_schema_available(PDO $pdo): bool { return schema_table_exists($pdo,'position_error_checks'); }
+function haversine_distance_m(float $lat1,float $lon1,float $lat2,float $lon2): float {
+    $earthRadius=6371008.8;$latDelta=deg2rad($lat2-$lat1);$lonDelta=deg2rad($lon2-$lon1);$a=sin($latDelta/2)**2+cos(deg2rad($lat1))*cos(deg2rad($lat2))*sin($lonDelta/2)**2;
+    return 2*$earthRadius*asin(min(1.0,sqrt($a)));
+}
+function parse_position_error_utc_stamp(mixed $value,string $field,DateTimeImmutable $now): DateTimeImmutable {
+    if(!is_string($value)||!preg_match('/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/',$value))throw new InvalidArgumentException($field.' must be a UTC timestamp in YYYY-MM-DD HH:MM:SS format');
+    $stamp=DateTimeImmutable::createFromFormat('!Y-m-d H:i:s',$value,new DateTimeZone('UTC'));$errors=DateTimeImmutable::getLastErrors();
+    if(!$stamp||($errors!==false&&($errors['warning_count']||$errors['error_count']))||$stamp->format('Y-m-d H:i:s')!==$value)throw new InvalidArgumentException($field.' must be a valid UTC timestamp');
+    if($stamp>$now->modify('+2 seconds'))throw new InvalidArgumentException($field.' must not be more than 2 seconds in the future');
+    if($stamp<$now->modify('-60 minutes'))throw new InvalidArgumentException($field.' must not be older than 60 minutes');
+    return $stamp;
+}
+function position_errors_for_session(PDO $pdo,int $sessionId,string $siteId): array {
+    $q=$pdo->prepare('SELECT p.* FROM position_error_checks p JOIN test_sessions s ON s.id=p.session_id WHERE p.session_id=? AND s.site_id=? ORDER BY p.created_at,p.id');$q->execute([$sessionId,$siteId]);$rows=$q->fetchAll();$errors=[];
+    foreach($rows as &$row){foreach(['id','session_id','gate_no','window_seconds','inside_valid_fix_count','outside_valid_fix_count'] as $key)$row[$key]=(int)$row[$key];foreach(['inside_mean_latitude','inside_mean_longitude','outside_mean_latitude','outside_mean_longitude','tape_distance_m','phone_distance_m','error_m'] as $key)$row[$key]=(float)$row[$key];$errors[]=$row['error_m'];}
+    unset($row);$absolute=array_map('abs',$errors);$count=count($errors);
+    return ['rows'=>$rows,'summary'=>['count'=>$count,'mean_signed_error_m'=>$count?round(array_sum($errors)/$count,3):null,'mean_absolute_error_m'=>$count?round(array_sum($absolute)/$count,3):null,'largest_absolute_error_m'=>$count?round(max($absolute),3):null]];
+}
 final class SafeZoneLoopGuardException extends InvalidArgumentException {}
 function safe_zone_inner_probe(array $ring): ?array {
     if(count($ring)<3)return null;
