@@ -1,9 +1,9 @@
 # Trailwatch Dashboard — Project Status
 
-**Reviewed:** 2026-11-10
+**Reviewed:** 2026-11-12
 **Project:** `D:\Projects for PC\Thesis\Dashboard-work`
-**Branch:** `codex/session-fix-merge` (merge in progress; changes are uncommitted)
-**Scope:** Dashboard, PHP API/backend, MariaDB schema/migrations, local tooling, and dashboard-relevant research proposal requirements. This report is based on the current checked-out source and test runner; it does not claim the hardware has been tested. No credentials or tokens are included.
+**Branch:** `mydays/session-fix-merge` (pushed to GitHub; latest commit `dfd8f88` "Add position error checks (migration 015)")
+**Scope:** Dashboard, PHP API/backend, MariaDB schema/migrations, local tooling, and dashboard-relevant research proposal requirements. This report is based on the current checked-out source and test runner; it does not claim the hardware has been tested. No credentials or tokens are included. Facts about the LIVE database come from output the operator pasted; this report did not connect to LIVE.
 
 ## Status labels
 
@@ -34,9 +34,9 @@
 | `public/assets/js/dashboard-label-layout.js` | SVG label placement, clipping bounds, truncation and CSS-pixel sizing. |
 | `public/assets/js/safe-zone-geometry.js`, `safe-zone.js` | Local geometry, Douglas–Peucker simplification, GPX preview, polygon editing/saving. |
 | `public/assets/css/dashboard.css` | Local dashboard/editor styles. |
-| `sql/schema.sql`, `sql/demo_seed.sql`, `sql/migrations/` | Schema-only initialization, demo seed, and thirteen ordered migrations; 008 adds safe-zone rings, 009 BENCH classification, 010 sessions, 011 safe-zone metadata, 012 packet annotations, and 013 crossing records. |
+| `sql/schema.sql`, `sql/demo_seed.sql`, `sql/migrations/` | Schema-only initialization, demo seed, and fifteen ordered migrations; 008 adds safe-zone rings, 009 BENCH classification, 010 sessions, 011 safe-zone metadata, 012 packet annotations, 013 crossing records, 014 marker checks, and 015 position error checks. |
 | `tools/setup_db.php`, `migrate_db.php`, `backup_db.php`, `live_check.php` | DB setup, migration, timestamped backup, and read-only LIVE readiness check. |
-| `tools/simulate_hikers.php`, `tools/scenarios/` | DEMO-only logical-packet simulator and scenarios; it does not simulate radio hardware. |
+| `tools/simulate_hikers.php`, `tools/scenarios/` | DEMO-only logical-packet simulator and scenarios (JSON scenarios plus built-in `phase1_replay` and `return_to_safe`); it does not simulate radio hardware. |
 | `tests/` | PHP, JavaScript, PowerShell, API smoke, and isolated scratch-LIVE integration tests. |
 | `docs/CODEX_WEBSITE_SPEC.md`, `docs/CHAPTER4_DATA.md`, `docs/PHONE_LINK_OPTIONS.md` | Requirements copy and data/phone planning notes. The paper remains unchanged. |
 
@@ -52,6 +52,16 @@
 
 False-alert output is explicitly a **candidate only**: an OFF_TRAIL event whose source packet's receive time falls outside every matching session/hiker `started_at..reentry_at` window. It is not stored or presented as a study result. Crossing timestamps are `DATETIME(3)`, while packet `received_at` is `DATETIME` at second precision, so sub-second boundary ordering cannot be recovered from existing packet timestamps.
 
+**IMPLEMENTED AND TESTED — UTC clock.** The MariaDB session time zone is +00:00 and PHP runs in UTC; ingest converts a supplied `received_at` to UTC. An operator-only `GET /api/clock-check` returns `server_utc_now` (no milliseconds), `db_now` and the time zones, and a Settings clock panel shows them with the laptop offset for Sheet 0. API and CSV timestamps are naive UTC strings. Rows written before this change (legacy DEMO rows) can mix clocks.
+
+**IMPLEMENTED AND TESTED — packet annotations (migration 012).** The operator can set or clear an intended class (INSIDE or OUTSIDE) and a point source (FROM_TRACK or MOVED_BEYOND_MARGIN) for one packet or a range of sequences; actions are audited. The packet log and packet CSV gain `intended_class`, `point_source` and `classification_matched`. Nothing is added to the uplink or bridge payload.
+
+**IMPLEMENTED AND TESTED — marker checks (migration 014, PHASE2 sessions only).** `POST /api/marker-checks` averages the valid fixes (accuracy 10 m or better, 5 or more satellites, duplicates excluded) inside a window that ends at server UTC now (default 120 s, allowed 30 to 600 s), classifies the mean position with the existing geofence against the active zone, and stores classification, intended class and whether they match. No valid fix returns HTTP 422 and saves nothing. With no active polygon the row is saved as UNCLASSIFIED with a warning. Warnings (never blocks) appear under 100 s or fewer than 10 valid fixes. `GET /api/marker-checks?session_id=` and the `marker_checks` CSV export read it back. Seen on DEMO through the session 13 CSV; the CSV now prints Y/N for `matches_intended` (covered by a test; the fixed CSV was not re-downloaded).
+
+**IMPLEMENTED AND TESTED — position error checks (migration 015, PHASE2 sessions only).** One row per gate check holds the inside and outside 10-second windows, valid fix counts, mean positions, the typed tape distance, the phone distance and the signed error. The operator presses two stamp buttons (each stores `server_utc_now` unchanged); each window is the 10 seconds before its stamp, both ends inclusive, and only non-duplicate valid fixes count. Phone distance is a PHP haversine (radius 6371008.8 m) between the two window means; error is phone distance minus tape distance, signed, 3 decimals. Stamps must be `YYYY-MM-DD HH:MM:SS` UTC, not more than 2 s in the future and not older than 60 minutes. Responses: HTTP 409 outside PHASE2, 404 for an unknown session or hiker, 422 when a window has no valid fix, 503 without migration 015. Saves are audited as `POSITION_ERROR_CREATED` in a transaction. `GET /api/position-errors?session_id=` returns rows plus a read-time summary (count, mean signed, mean absolute, largest absolute); the CSV is `GET /api/export.csv?type=position_errors&session_id=N` (17 columns). Browser test on DEMO (session 23): phone distance 10.008 m against a typed 10 m gave an error of 0.008 m, matching the expected value. The panel's three labelled summary lines were not confirmed on screen. Files: `sql/migrations/015_position_error_checks.sql`, `public/api/index.php`, `src/Services/ApiService.php`, `public/assets/js/site-settings.js`, `tests/position_error_scratch_test.php`. Not built: the optional absolute error at a known point.
+
+**Difference from the paper (decision D5).** The paper says the app logs the pause average. The dashboard instead computes the marker and pause averages from packets inside an operator-stamped window. Worth a note in the paper.
+
 **IMPLEMENTED AND TESTED — link loss, SOS, and storm controls.** API reads mark a hiker `LINK_LOST` after 15 seconds without an uplink and retain its last packet position and receptions; dashboard renders state, battery, report age and last heard by (`public/api/index.php:63,73-75`; `public/assets/js/dashboard.js`). Emergency uplinks create an emergency event and SOS reply; an outside-zone SOS also retains an OFF_TRAIL event (`src/Services/ApiService.php:125-170`; `tests/api_smoke.php:66`). Storm campaigns repeat on eligible reply slots until receipt flag or operator cancellation; Phase 2 disables them (`public/api/index.php:94-101`; service; `tests/api_smoke.php:52-58,71-74`). The “alarm” is an event/alert shown in the app; no sounder or physical alarm has been verified.
 
 **BLOCKED (waiting on hardware/firmware/site data) — physical bridge.** No ESP32 firmware, actual LoRa radio driver, Android application, or USB serial bridge is implemented. Packet byte sizes, radio encoding, serial framing, and real receive behavior are intentionally unspecified and remain firmware-owned. No real device delivery is claimed.
@@ -62,10 +72,11 @@ False-alert output is explicitly a **candidate only**: an OFF_TRAIL event whose 
 
 Current route families in `public/api/index.php` include:
 
-- **Read dashboard:** `GET /api/status`, `/api/hikers`, `/api/hikers/{node_id}/latest`, `/api/positions/latest`, `/api/safe-zone`, `/api/events`, `/api/logs/packets`, `/api/research/summary`, `/api/settings/phase-mode`, `/api/test-sessions/active`, `/api/sites`, `/api/network-nodes`, `/api/reference-points`, `/api/commands/storm-turn-back/active`, `/api/crossings?session_id={id}`, and `/api/crossings/{id}`. Packet-log filters include `session_id` and `node_id`.
-- **Operator writes:** `POST /api/settings/site`, `/api/settings/phase-mode`, `/api/test-sessions/start`, `PUT /api/safe-zone`, `POST /api/events/{id}/resolve`, `POST /api/crossings/start`, `POST /api/crossings/{id}/reentry`, `POST /api/crossings/{id}/end`, `PUT /api/crossings/{id}`, storm campaign arm/cancel endpoints, demo clearing, hiker registry create/update, site-location and network-node/reference-point CRUD and verification actions.
+- **Read dashboard:** `GET /api/status`, `/api/hikers`, `/api/hikers/{node_id}/latest`, `/api/positions/latest`, `/api/safe-zone`, `/api/events`, `/api/logs/packets`, `/api/research/summary`, `/api/settings/phase-mode`, `/api/test-sessions/active`, `/api/sites`, `/api/network-nodes`, `/api/reference-points`, `/api/commands/storm-turn-back/active`, `/api/crossings?session_id={id}`, `/api/crossings/{id}`, `/api/marker-checks?session_id={id}`, `/api/position-errors?session_id={id}`, and `/api/clock-check`. Packet-log filters include `session_id` and `node_id`.
+- **Operator writes:** `POST /api/settings/site`, `/api/settings/phase-mode`, `/api/test-sessions/start`, `PUT /api/safe-zone`, `POST /api/events/{id}/resolve`, `POST /api/crossings/start`, `POST /api/crossings/{id}/reentry`, `POST /api/crossings/{id}/end`, `PUT /api/crossings/{id}`, `POST /api/marker-checks`, `POST /api/position-errors`, storm campaign arm/cancel endpoints, demo clearing, hiker registry create/update, site-location and network-node/reference-point CRUD and verification actions.
 - **Bridge:** `POST /api/bridge/ingest`, `/api/bridge/validate`, `/api/bridge/status`, `GET /api/commands/pending`, and `POST /api/commands/{id}/status`.
-- **Export and readiness:** `GET /api/export.csv`, `GET /api/live-check`.
+- **Export and readiness:** `GET /api/export.csv` (types include `crossings`, `marker_checks` and `position_errors`, each with `session_id`), `GET /api/live-check`.
+- **Bridge token on a read route:** `GET /api/safe-zone` also accepts a valid bridge token. On LIVE, anyone holding the token can read the polygon.
 
 Inputs are JSON or query filters as appropriate; validation returns HTTP errors for malformed fields/ranges and unknown records. Operator APIs require the local operator session; mutations require `X-CSRF-Token`, and loopback remains enforced. Bridge ingest/status/command routes require the profile bridge token; validation also requires loopback and performs a dry run. LIVE-check is local and read-only. Ingest returns the created logical command object (or `null` for dry-run/no command) while preserving `command_queued`. See route dispatch at `public/api/index.php`; tests include `tests/api_smoke.php`, `tests/operator_auth_scratch_test.php`, and `tests/live_first_run_scratch_test.php`.
 
@@ -73,7 +84,7 @@ Inputs are JSON or query filters as appropriate; validation returns HTTP errors 
 
 ## 4. Database and migrations
 
-**IMPLEMENTED AND TESTED — schema.** Core tables include `hiker_nodes`, `network_nodes`, `trail_reference_points`, `safe_zones`, `safe_zone_vertices`, `site_locations`, `app_settings`, `test_sessions`, `uplink_packets`, `packet_receptions`, `packet_annotations`, `crossings`, `downlink_commands`, `storm_turnback_campaigns`, `system_events`, `operator_actions`, `system_status`, legacy `nodes`/`positions`/`alerts`, `schema_migrations`, and `mode_switch_audit` (`sql/schema.sql`). Session IDs on packet, reception, command, and event rows point to the site-scoped test session; packet uniqueness includes site, hiker, session, and sequence. Crossing rows are unique by session, node, and crossing number.
+**IMPLEMENTED AND TESTED — schema.** Core tables include `hiker_nodes`, `network_nodes`, `trail_reference_points`, `safe_zones`, `safe_zone_vertices`, `site_locations`, `app_settings`, `test_sessions`, `uplink_packets`, `packet_receptions`, `packet_annotations`, `crossings`, `marker_checks`, `position_error_checks`, `downlink_commands`, `storm_turnback_campaigns`, `system_events`, `operator_actions`, `system_status`, legacy `nodes`/`positions`/`alerts`, `schema_migrations`, and `mode_switch_audit` (`sql/schema.sql`). Session IDs on packet, reception, command, and event rows point to the site-scoped test session; packet uniqueness includes site, hiker, session, and sequence. Crossing rows are unique by session, node, and crossing number.
 
 **IMPLEMENTED AND TESTED — migration runner.** The ordered set is:
 
@@ -90,14 +101,23 @@ Inputs are JSON or query filters as appropriate; validation returns HTTP errors 
 11. `011_safe_zone_version_metadata.sql` — nullable metadata for GPX-derived safe-zone versions.
 12. `012_packet_annotations.sql` — operator-side intended classification and point-source annotations.
 13. `013_crossings.sql` — Phase 2/3 crossing records and optional operator-entered alert fields.
+14. `014_marker_checks.sql` — gate marker acceptance checks (averaged window, classification, intended class).
+15. `015_position_error_checks.sql` — position error checks (two 10 s windows, tape distance, phone distance, signed error).
 
-The runner uses checksums and skips already applied migrations; the scratch migration test checks repeated application and thirteen ledger rows (`tools/migrate_db.php`; `tests/migration_scratch_test.php`). The operator later reported running the LIVE backup, migration, and readiness-check commands. **This update did not inspect the LIVE database or see those commands' output, so the current applied migration set, backup path, and readiness result remain unverified.**
+The runner uses checksums and skips already applied migrations; the scratch migration test checks repeated application and fifteen ledger rows (`tools/migrate_db.php`; `tests/migration_scratch_test.php`). Migrations 001 to 009 have mixed CRLF/LF line endings and their checksums are of the raw bytes, so never normalize them. Migrations 011 and later are stored with LF.
+
+- **DEMO** (`hiker_dashboard_test_codex`): on 015. A DEMO backup was taken first (`backups/20261112_014205`), and the table exists with ledger count 15.
+- **LIVE** (`hiker_dashboard_live`): on 014 at the last check. `live_check` reported 14 recorded migrations with matching checksums and CHECK TABLE OK on 23 tables, from output the operator pasted. **Migration 015 has not been applied to LIVE.**
+- Migration 014 SHA-256: `83B64DC283FD44ECAC31A72BF2955FB7329992115E8228A5F7D692D2871F5225`. Migration 015 SHA-256: `E09F4D836FEE9B91BA41DA13BE0282970DCBA8791463A92ABD0CAC62392EA76E` (1374 bytes, LF only, one trailing newline).
+- **Applying 015 to LIVE (supervised, at the end):** `C:\xampp\php\php.exe tools\backup_db.php --profile=live` (look for "Dump completed"), then `C:\xampp\php\php.exe tools\migrate_db.php --profile=live`, then check that `position_error_checks` exists and the ledger count is 15. The line "Migration ledger is current for profile X" is printed at the end of every run and does not prove that nothing was applied. Always pass `--profile`; `backup_db.php` defaults to LIVE without it.
 
 ## 5. Frontend, map, and safe-zone editor
 
 **IMPLEMENTED AND TESTED — offline map.** The dashboard map is plain SVG with a background/grid, equirectangular local projection, site nodes/references, safe-zone geometry, hiker markers, scale and north direction; it does not use a tile layer (`public/assets/js/dashboard.js`; `public/index.php:56-60`). Map layout has defaults for empty/single-marker cases. Labels counter-scale to CSS-pixel size, fit inside SVG bounds, truncate with full text retained in an SVG title, and resize with the viewport (`public/assets/js/dashboard-label-layout.js`; `tests/dashboard_map_labels_test.js:5-15`). Static offline checks cover the dashboard, safe-zone and local assets (`tests/offline_static_test.js`). Static scans do not prove zero network activity at runtime.
 
 **IMPLEMENTED AND TESTED — GPX/polygon editing.** `/safe-zone` locally imports a GPX track/route, previews a corridor, and saves only after operator confirmation. Tracks over 250 points use browser Douglas–Peucker simplification with configurable tolerance and previewed point count/maximum deviation. Corridor half-width remains 5–50 m (`public/safe-zone.php`; `public/assets/js/safe-zone.js`; `public/assets/js/safe-zone-geometry.js`; `tests/gpx_corridor_test.js:14-34`). Existing geometry keeps edge points INSIDE (`src/geofence.php:1-16`; polygon/geofence tests). This is not survey validation and does not establish a real boundary. Closed loops now produce outer and inner rings, with the center of the loop outside the safe zone (`tests/gpx_ring_test.js`; `tests/ring_zone_scratch_test.php`).
+
+**IMPLEMENTED AND TESTED — safe-zone version metadata (migration 011).** Each saved safe-zone version can store `margin_m`, GPX file name, raw and simplified point counts, simplification tolerance, largest simplification deviation (`simplify_max_deviation_m`), recorded track length (haversine over raw points), optional ground length and a recording note; the API derives corridor width and the recorded-minus-ground difference. The editor defaults the margin to 10 m and warns (does not block) below 10 m. The preview shows "Not applied" for tolerance when a track has 250 points or fewer. A two-ring save whose inner-ring probe point does not classify OUTSIDE is rejected by the server with HTTP 422, and the editor disables Save for the same case. The 2 m simplification has not yet been checked on a real track over 250 points.
 
 **IMPLEMENTED AND TESTED — empty LIVE dashboard.** With no safe zone, the page displays “No safe zone set”; packets remain unclassified rather than being marked OFF TRAIL. The LIVE dashboard does not silently fall back to demo records on API errors (`public/index.php:56-60`; `public/assets/js/dashboard.js`; `tests/live_empty_dashboard_test.js`).
 
@@ -115,6 +135,8 @@ Configured site data (`config/sites.php:4-42`):
 - **Mt. Mapalad (backup):** blank center and references; BASE/CHK unset.
 
 **PARTIAL — site verification.** Registry records can be marked verified and that action is audited; unknown coordinates remain null/UNSURVEYED (`public/api/index.php` site/node/reference registry write routes; `tests/live_first_run_scratch_test.php:30-32`). Actual survey/verification is still absent. Confirm the PUP sample boundary remains excluded from research if using the general PUP site in LIVE; the configured `pup` entry is not marked demo/rehearsal (`config/sites.php:4-12`).
+
+**PARTIAL — LIVE setup state (from operator-pasted output; this report did not connect to LIVE).** The selected LIVE site is `pup`. The hiker registry has two enabled rows: `node_id` N1 (display name H1) and `node_id` N2 (display name H2). The `node_id`, not the display name, is what the bridge and hardware must send. After the `live_check` hiker-count fix, `live_check` gave 10 PASS and 2 FAIL: no active test session (expected until a test starts) and Base Camp and Checkpoint nodes missing with coordinates unset. The active LIVE safe zone "PUP oval Phase 2" (v2) has 13 points and the operator says it is not the real walked lap, so it must be replaced before any real data is trusted.
 
 ## 7. Research summary and proposal requirements
 
@@ -134,6 +156,9 @@ Configured site data (`config/sites.php:4-42`):
 | Sheet 1 / Sheet 4 dashboard data | **PARTIAL** | Available packet, reception, position, command timing and event exports exist (`public/api/index.php` CSV route). Wrong-node observation and actual hiker receive windows/phone warning timing remain manual; no device receipt measurement. |
 | Session-scoped sequence identity | **IMPLEMENTED AND TESTED** | Migration 010 adds sessions to packets, receptions, commands, and events; dedupe compares site, hiker, sequence, and the server-stamped active session. Settings can start and audit sessions; packet log and CSV expose session phase and metadata (`sql/migrations/010_test_sessions.sql`; `tests/test_sessions_scratch_test.php`). |
 | Phase 2/3 crossing records (Sheets 2/3/6) | **IMPLEMENTED AND TESTED** | Migration 013 stores crossings and manual phone/alarm observations. Operator APIs provide start/re-entry/end/edit; reads compute packet-window reference, flips, outside counts, return-to-safe and reports-after-re-entry. No receive-window judgement or alert latency is computed (`sql/migrations/013_crossings.sql`; `tests/crossings_scratch_test.php`). |
+| Marker acceptance (Phase 2 gates) | **IMPLEMENTED AND TESTED** | Migration 014. The mean of valid fixes in an operator-chosen window is classified against the stored polygon and compared with the intended class. Tested in `tests/marker_checks_scratch_test.php`; seen on DEMO. Not yet run on LIVE. |
+| Position error (Phase 2 gates) | **IMPLEMENTED AND TESTED** | Migration 015. Phone distance between two 10 s window means minus the typed tape or wheel distance; the summary shows mean signed, mean absolute and largest absolute error, each labelled, because the paper wording is ambiguous. Browser-tested on DEMO. Needs a real tape or wheel measurement at each gate. |
+| Phase 1 classification match | **IMPLEMENTED AND TESTED** | Migration 012 annotations plus the `phase1_replay` scenario. Replay outside points are 5 m beyond the outer edge only, so the field side is not exercised. |
 | BENCH session phase and warnings | **IMPLEMENTED AND TESTED** | `BENCH` is a fourth `test_sessions.phase` value; the distinct `app_settings.phase_mode` is not synchronized. Settings warns on mismatch and, in LIVE, warns when starting BENCH/PHASE1 while Bench session is OFF. These warnings do not block starting a session (`public/api/index.php`; `public/settings.php`; `public/assets/js/site-settings.js`; session tests). |
 | Immediate command in ingest result | **IMPLEMENTED AND TESTED** | Non-dry-run ingest includes the created command object; simulator fetches it and reports SENT_TO_BASE to exercise lifecycle timestamps (`src/Services/ApiService.php`; `tools/simulate_hikers.php`; `tests/simulator_reply_lifecycle_test.php`). |
 | Research classification of bench packets | **IMPLEMENTED AND TESTED** | LIVE Bench session and manual range marking set BENCH; packet/event/command summary counts exclude it; labels appear in packet log and CSV (`sql/migrations/009_bench_classification.sql`; `tests/bench_scratch_test.php`; `tests/research_summary_test.php`). |
@@ -142,19 +167,19 @@ The proposal DOCX is not modified by this project work. Table 8 physical sizes a
 
 ## 8. Tests and verification
 
-**IMPLEMENTED AND TESTED — latest scratch suite (2026-11-10).** `C:\xampp\php\php.exe tests\run_scratch_suite.php` completed with **419 PASS lines and 0 FAIL lines** (exit code 0). Compared with the previously recorded 384 PASS / 0 FAIL suite, the current run adds P5 crossing coverage. The runner creates and drops disposable scratch databases; its isolated LIVE-mode integration uses only a scratch `live` profile, never `hiker_dashboard_live` (`tests/run_scratch_suite.php`). Migration 013 was applied/rechecked in scratch, and the ledger ended with thirteen rows.
+**IMPLEMENTED AND TESTED — latest scratch suite (2026-11-12).** `C:\xampp\php\php.exe tests\run_scratch_suite.php 2>&1` gave **542 PASS lines and 0 FAIL lines** on the tree committed as `dfd8f88`, run once on the operator's machine with the dashboard on DEMO. The `2>&1` matters because FAIL lines go to stderr. A case-sensitive `FAILED` search of the output printed nothing (a case-insensitive search wrongly matches PASS lines whose test names contain "failed"). Earlier recorded runs: 419 PASS on 2026-11-10 and 528 PASS at `a4afdfa`. The runner creates and drops disposable scratch databases; its isolated LIVE-mode integration uses only a scratch `live` profile, never `hiker_dashboard_live` (`tests/run_scratch_suite.php`). Run the suite once, only while the badge says DEMO and MariaDB is healthy.
 
 Included test files cover:
 
 - PHP logic: `geofence_test.php`, `polygon_validation_test.php`, `research_summary_test.php`, `mode_safety_test.php`, `live_check_test.php`, `registry_service_test.php`.
 - DB safety/isolated behavior: `clear_demo_scratch_test.php`, `live_schema_scratch_test.php`, `migration_scratch_test.php`, `bench_scratch_test.php`, `live_first_run_scratch_test.php`.
-- API and pages: `api_smoke.php`, `crossings_scratch_test.php`, `packet_annotations_scratch_test.php`, `test_sessions_scratch_test.php`, `simulator_reply_lifecycle_test.php`, `site_safe_zone_smoke.ps1`.
+- API and pages: `api_smoke.php`, `crossings_scratch_test.php`, `marker_checks_scratch_test.php`, `position_error_scratch_test.php`, `packet_annotations_scratch_test.php`, `test_sessions_scratch_test.php`, `simulator_reply_lifecycle_test.php`, `site_safe_zone_smoke.ps1`.
 - Browser logic/static contracts: `gpx_corridor_test.js`, `gpx_ring_test.js`, `bench_time_test.js`, `dashboard_map_labels_test.js`, `dashboard_packet_log_contract_test.js`, `live_empty_dashboard_test.js`, `session_ui_contract_test.js`, `offline_static_test.js`.
 - Ring persistence/geofence integration: `ring_zone_scratch_test.php` creates and drops its own ring and pre-008 scratch databases.
 
-The suite creates/drops scratch databases and launches only loopback test servers. Actual LIVE database integrity/migration state was not queried during this review. Use `docs/LIVE_FIRST_RUN.md` for the read-only readiness workflow; back up before any schema migration.
+The suite creates/drops scratch databases and launches only loopback test servers. Use `docs/LIVE_FIRST_RUN.md` for the read-only readiness workflow; back up before any schema migration.
 
-**Operator-reported LIVE follow-up (2026-11-04):** The operator says they ran `tools/backup_db.php --profile=live`, `tools/migrate_db.php --profile=live --allow-live-schema`, and `tools/live_check.php`. The output and resulting backup location were not provided here, and this report did not connect to LIVE; success and current LIVE readiness are therefore not verified.
+**Operator-reported LIVE state (2026-11-11 and 2026-11-12):** LIVE backups exist in `backups\` (UTC folder names): before and after migrations 010 to 013, and one taken just before migration 014 was applied to LIVE (its "Dump completed" line was not seen). No LIVE backup has been taken since the LIVE hiker setup, so take a fresh one before migration 015.
 
 ## 9. Data integrity and security
 
@@ -170,13 +195,20 @@ The suite creates/drops scratch databases and launches only loopback test server
 
 1. **High — bench workflow depends on the operator:** the Bench session defaults OFF. Turn it on before bench trials and off before scored field collection; otherwise unflagged LIVE records are REAL.
 2. **High — no physical system verification:** firmware, radios, serial link, phone app, and hiker-side response have not been built/tested.
-3. **High — site geometry:** PUP boundary is demo-only; Balagbag and Mapalad route geometry, base and checkpoint coordinates need survey/operator data.
+3. **High — site geometry:** the PUP safe zone now on LIVE (13 points) is not the real walked lap according to the operator; Balagbag and Mapalad route geometry, and Base Camp and Checkpoint coordinates, still need real survey or operator data.
 4. **Medium — timing evidence:** command timestamps measure base/bridge lifecycle only; 2 s / 3 s receive windows and 15 s hiker warning behavior need hardware/record-sheet measurements.
 5. **Medium — security:** single local operator account with session and CSRF protection; intended deployment remains one operator on loopback.
 6. **Medium — offline runtime proof:** static external-reference scan passed; no runtime browser network capture recorded here.
 7. **Medium — packet/crossing timestamp precision:** crossing boundaries retain milliseconds, but packet `received_at` has second precision, so same-second packet ordering around a button press is not recoverable.
 8. **Low — Phase 3 interpretation:** the API treats every PHASE3 session as Part B for crossing-number and null-gate validation; the session model has no separate sub-phase field.
 9. **Low — version drift:** README and old historical reports may describe prior states; use current code and this report's cited evidence.
+10. **Medium — LIVE is not on the final schema:** LIVE is on migration 014; 015 is applied to DEMO only.
+11. **Medium — tape distance:** position error needs a distance measured on the ground with a tape or measuring wheel (proposal v80, materials list). If the operator will not measure, that conflicts with the paper and is a decision for the operator; the field and the paper were not changed.
+12. **Low — wording differences between the paper and the dashboard (not fixed here):** (a) the paper says the app logs the pause average, while the dashboard computes it from packets in an operator-stamped window; (b) "mean and largest absolute position error" is ambiguous, so three labelled summary lines are shown; (c) Table 9 says the largest simplification deviation is recorded on Sheet 0, but no sheet has a row for it (stored as `simplify_max_deviation_m`); (d) Table 8 gives the downlink type as "acknowledgement or alert" but the text lists four types and the dashboard issues four; (e) Part B corridor is about 150 m in v80 while the sample Balagbag GPX is 817.96 m.
+13. **Low — mixed clocks in old rows:** rows written before the UTC change can mix clocks. Use packet times, not event `created_at`, for windows (the return-to-safe event time is the database `created_at`).
+14. **Low — test data for averaged checks:** `phase1_replay` spreads INSIDE points around the ring edge, so their average falls in the middle of the oval (OUTSIDE) and an INSIDE marker check fails by design. Position error needs packets at one location (for example a small GPX with identical points). The simulator restarts sequence numbers at 1 on every run, so use one run per session; a rerun in the same session is flagged duplicate and excluded from the windows.
+15. **Low — not built:** D9 freeze warning when saving a safe-zone version during an active PHASE2/PHASE3 session, D11 "link lost since" (last reception plus 15 s, derived), P9 GPS fix stability, the optional absolute position error at a known point, and field-side replay points. Build only what the paper needs.
+16. **Medium — local MariaDB incident (2026-11-12):** `mysqld` hung on corrupted replication metadata files (`master*.info`, `relay-log*.info`, `mysql-relay-bin*`) in `C:\xampp\mysql\data`; cause unverified, probably from the earlier Aria recovery and forced kills. The files were moved, not deleted, to `D:\mysql-replication-junk-20261112` and `D:\mysql-replication-junk-20261112b` (keep both). If it happens again, read the `mysqld` console output and check which `php.exe` processes hold connections before killing anything, and never run the suite while MariaDB is unhealthy.
 
 ## 12. Not finished / blocked
 
@@ -188,29 +220,33 @@ The suite creates/drops scratch databases and launches only loopback test server
 - Surveyed PUP boundary, Balagbag GPX/corridor, checkpoint/base locations, and Mapalad route/reference locations.
 - Field measurements for delivery denominator, position error ground truth, battery life, wrong-node receptions, and phone alert timestamps.
 - Hardware acceptance testing and any claim of outdoor/radio readiness.
+- The Android phone app (`HikerPhoneApp`) is not touched by this work, and the hiker packet format and serial framing for a Python bridge are not defined; propose a minimal line format for approval before any bridge is written.
+- Operator-side LIVE setup: a real walked PUP lap, real Base Camp and Checkpoint coordinates, and the node ID the hardware sends (N1 or N2).
 
 ## 13. Suggested next steps
 
-1. Use the audited Bench session switch during Phase 1 trials, then verify it is OFF before scored field collection.
-2. Collect and verify site data, then mark registry locations verified and import surveyed GPX corridors.
-3. Review the operator's LIVE backup, migration, and readiness-check outputs and confirm the resulting migration ledger/readiness before field use; do not rerun migrations without checking current state.
-4. Agree packet/serial contract with firmware owners without assuming sizes or framing; then implement and bench-test the bridge when hardware exists.
-5. Capture manual measurement fields from the proposal sheets and verify physical timing, alerts, battery, and wrong-node observations.
-6. Add authenticated operator accounts/CSRF if the system ever needs access beyond its single-machine loopback setup.
+1. Finish the LIVE setup: load the real walked PUP lap in the editor, check the loop rule, save it and reload; add real Base Camp and Checkpoint coordinates (the Base Camp code must match the `base_id` the bridge sends, `BASE` is the config fallback); confirm the node ID the hardware sends.
+2. Take a fresh LIVE backup, then apply migration 015 to LIVE as the last supervised step (see section 4), then switch the dashboard back to DEMO.
+3. Start a LIVE test session only when real testing begins. Use a BENCH session with the Bench switch for bench work, and verify the switch is OFF before scored field collection.
+4. Decide with the paper whether the tape or measuring wheel will be used for position error, and which of the items in known issue 15 the paper really needs.
+5. Agree the packet and serial contract with the firmware owners without assuming sizes or framing; then write and bench-test the bridge when hardware exists.
+6. Capture the manual measurement fields from the proposal sheets (timing, alerts, battery, wrong-node observations).
+7. Merge to `main` later, after `git worktree list` and after LIVE has the final schema. Never force-push.
 
 ## One-page status summary
 
 | Area | Status | Note |
 |---|---|---|
 | PHP/MariaDB dashboard foundation | **IMPLEMENTED AND TESTED** | Local app, API, settings, map, logs, and controls. |
-| Schema and migration system | **IMPLEMENTED AND TESTED** | Schema-only setup, separate demo seed, checksum ledger through migration 013. |
+| Schema and migration system | **IMPLEMENTED AND TESTED** | Schema-only setup, separate demo seed, checksum ledger through migration 015 (DEMO); LIVE is on 014. |
 | DEMO/LIVE mode separation | **IMPLEMENTED AND TESTED** | Local mode file, separate profiles/tokens, LIVE packet rejection and readiness checks. |
 | Uplink ingest/research/event/command logic | **IMPLEMENTED AND TESTED** | Logical fields only; dedupe, reply priority, route, timestamps and campaign behavior. |
 | Offline SVG map and GPX editor | **IMPLEMENTED AND TESTED** | No tiles, local projection, bounded labels, simplification preview. |
-| Test suite | **IMPLEMENTED AND TESTED** | Full scratch suite: 419 PASS, 0 FAIL; disposable DBs dropped. |
+| Test suite | **IMPLEMENTED AND TESTED** | Full scratch suite: 542 PASS, 0 FAIL at `dfd8f88`; disposable DBs dropped. |
 | Security | **IMPLEMENTED AND TESTED** | Local operator account, session auth, CSRF on mutating operator APIs, loopback guard, and separate bridge-token routes (`src/operator_auth.php`; `tests/operator_auth_scratch_test.php`). |
-| LIVE DB state | **PARTIAL** | Operator reports running backup, migration, and live check; outputs and current DB state were not verified in this report. |
+| LIVE DB state | **PARTIAL** | On migration 014 (live_check output pasted by the operator); 015 not applied; live_check 10 PASS / 2 FAIL (no active session; Base Camp and Checkpoint coordinates unset). |
 | Bench-data research classification | **IMPLEMENTED AND TESTED** | BENCH is stored per packet and excluded from research counts; switch/range actions are audited. |
 | Phase 2/3 crossing records | **IMPLEMENTED AND TESTED** | Migration 013, audited operator APIs, packet-time computed crossing fields, manual alert observations, and candidate-only false-alert field. |
+| Marker checks and position error (Phase 2) | **IMPLEMENTED AND TESTED** | Migrations 014 and 015, operator-stamped windows, labelled error summary, CSV exports. 015 is on DEMO only; needs real tape or wheel distances. |
 | Real radio/phone/hardware path | **BLOCKED (waiting on hardware/firmware/site data)** | Firmware, physical hardware and field observations pending. |
 | Surveyed trail/site configuration | **BLOCKED (waiting on hardware/firmware/site data)** | Needed coordinates and verified boundaries are incomplete. |
